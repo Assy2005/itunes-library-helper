@@ -38,6 +38,43 @@ def set_auto_launch_apple_music(v: bool) -> None:
     _qs().setValue("output/auto_launch_apple_music", v)
 
 
+# ---- notifications ----
+
+def taskbar_flash_on_done() -> bool:
+    return _qs().value("notify/taskbar_flash", True, type=bool)
+
+
+def set_taskbar_flash_on_done(v: bool) -> None:
+    _qs().setValue("notify/taskbar_flash", v)
+
+
+def show_toast_on_done() -> bool:
+    return _qs().value("notify/toast", True, type=bool)
+
+
+def set_show_toast_on_done(v: bool) -> None:
+    _qs().setValue("notify/toast", v)
+
+
+# ---- window state ----
+
+def window_geometry() -> bytes | None:
+    raw = _qs().value("ui/window_geometry")
+    return bytes(raw) if raw else None
+
+
+def set_window_geometry(geom: bytes) -> None:
+    _qs().setValue("ui/window_geometry", geom)
+
+
+def last_tab_index() -> int:
+    return int(_qs().value("ui/last_tab", 0))
+
+
+def set_last_tab_index(i: int) -> None:
+    _qs().setValue("ui/last_tab", i)
+
+
 def output_folder() -> str:
     default = os.path.join(os.path.expanduser("~"), "Music", "itunes-library-helper")
     return _qs().value("output/folder", default, type=str)

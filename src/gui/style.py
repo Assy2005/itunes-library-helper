@@ -383,6 +383,61 @@ QStatusBar::item {{
     border: none;
 }}
 
+/* ---------- Preset cards ---------- */
+QFrame#preset_card {{
+    background: {COLORS['card']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 12px;
+}}
+QFrame#preset_card:hover {{
+    background: {COLORS['card_hover']};
+    border: 1px solid #c7c7cc;
+}}
+QFrame#preset_card[selected="true"] {{
+    background: {COLORS['accent_bg']};
+    border: 2px solid {COLORS['accent']};
+}}
+QLabel#preset_card_icon {{
+    font-size: 26px;
+}}
+QLabel#preset_card_title {{
+    font-size: 14px;
+    font-weight: 600;
+    color: {COLORS['text']};
+}}
+QLabel#preset_card_tag {{
+    font-size: 11px;
+    color: {COLORS['text_dim']};
+}}
+QFrame#preset_card[selected="true"] QLabel#preset_card_title {{
+    color: {COLORS['accent']};
+}}
+
+/* ---------- EQ visualization ---------- */
+QFrame#eq_panel {{
+    background: {COLORS['card']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 10px;
+}}
+
+/* ---------- Toast notification ---------- */
+QFrame#toast {{
+    background: rgba(29, 29, 31, 240);
+    border-radius: 12px;
+    color: white;
+}}
+QLabel#toast_title {{
+    color: white;
+    font-weight: 600;
+    font-size: 13px;
+    padding: 0;
+}}
+QLabel#toast_body {{
+    color: #d2d2d7;
+    font-size: 12px;
+    padding: 0;
+}}
+
 /* ---------- Full-window drop overlay ---------- */
 QFrame#drop_overlay {{
     background: rgba(252, 60, 68, 0.10);

@@ -63,6 +63,32 @@ def _reveal_via_shell_api(abs_path: str) -> bool:
         return False
 
 
+def open_folder(path: str, log_cb=None) -> bool:
+    """Open a folder in Explorer (without selecting anything).
+
+    If the folder doesn't exist yet, create it — this lets the user
+    click the sidebar shortcut on a fresh install before they've ever
+    imported anything.
+    """
+    if sys.platform != "win32":
+        return False
+    if not path:
+        return False
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        if log_cb:
+            log_cb(f"⚠️  フォルダ作成に失敗: {e}")
+        return False
+    if log_cb:
+        log_cb(f"📂 フォルダを開く: {path}")
+    try:
+        subprocess.Popen(["explorer.exe", os.path.abspath(path)])
+        return True
+    except OSError:
+        return False
+
+
 def reveal_in_explorer(path: str, log_cb=None) -> bool:
     """Open File Explorer with `path` selected (so it's ready to be dragged).
 

@@ -19,7 +19,8 @@ a = Analysis(
     ["run.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[("resources/icon.ico", "resources"),
+           ("resources/icon.png", "resources")],
     hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},
@@ -55,5 +56,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,            # add an .ico here once you have one
+    icon="resources/icon.ico",
 )

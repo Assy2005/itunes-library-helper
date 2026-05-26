@@ -13,17 +13,20 @@ file URLs enters the main window, regardless of which tab is active.
 from __future__ import annotations
 
 import os
+import re
 import shutil
+import sys
 import time
 
 from PyQt6.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
+from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QIcon
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -38,10 +41,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import apple_music_helper, converter, downloader, ffmpeg_helper, settings
+from .. import (
+    apple_music_helper, converter, downloader, ffmpeg_helper, settings,
+    win_notify,
+)
 from ..audio_presets import PRESETS, AudioSettings
+from .eq_visualizer import EQVisualizer
 from .ffmpeg_dialog import FFmpegInstallDialog
 from .import_card import ImportItemCard
+from .preset_card import PresetCard
+from .toast import ToastManager
 
 
 # --------------------------------------------------------------------------- #
@@ -268,11 +277,15 @@ class ImportTab(QWidget):
         # URL card
         url_card, url_l = _card()
         url_l.addWidget(_subheading("🌐 URL から追加"))
+        url_l.addWidget(_hint(
+            "1行に1URL、または改行・カンマ・スペース区切りで複数URLを"
+            "一度に貼り付けられます。"
+        ))
         row = QHBoxLayout()
         row.setSpacing(8)
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText(
-            "https://www.youtube.com/watch?v=…  または  https://example.com/song.mp3"
+            "https://www.youtube.com/watch?v=…   または複数URLをカンマ区切りで"
         )
         self.url_input.returnPressed.connect(self._submit_url)
         url_btn = QPushButton("追加")
@@ -292,11 +305,17 @@ class ImportTab(QWidget):
         self.queue = ImportQueue()
         layout.addWidget(self.queue, 1)
 
+    # URLs separated by whitespace, commas, semicolons, or newlines.
+    _URL_SPLIT_RE = re.compile(r"[\s,;]+")
+
     def _submit_url(self) -> None:
-        url = self.url_input.text().strip()
-        if url:
-            self.request_import.emit(url, True)
-            self.url_input.clear()
+        raw = self.url_input.text().strip()
+        if not raw:
+            return
+        urls = [u for u in self._URL_SPLIT_RE.split(raw) if u]
+        for u in urls:
+            self.request_import.emit(u, True)
+        self.url_input.clear()
 
     def _pick_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -327,19 +346,24 @@ class AudioTab(QWidget):
             "変更内容は次回起動時にも保持されます。"
         ))
 
-        preset_card, preset_l = _card()
+        preset_card_outer, preset_l = _card()
         preset_l.addWidget(_subheading("🎛️ プリセット"))
-        row = QHBoxLayout()
-        self.preset_combo = QComboBox()
-        for name in PRESETS:
-            self.preset_combo.addItem(name)
-        self.preset_combo.setCurrentText(settings.preset_name())
-        self.preset_combo.currentTextChanged.connect(self._on_preset_changed)
-        row.addWidget(self.preset_combo, 1)
-        preset_l.addLayout(row)
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+        self._preset_cards: dict[str, PresetCard] = {}
+        for i, name in enumerate(PRESETS):
+            card = PresetCard(name)
+            card.clicked.connect(self._on_preset_changed)
+            self._preset_cards[name] = card
+            grid.addWidget(card, i // 3, i % 3)
+        preset_l.addLayout(grid)
+
         self.preset_desc = _hint("")
         preset_l.addWidget(self.preset_desc)
-        layout.addWidget(preset_card)
+        layout.addWidget(preset_card_outer)
 
         custom_card, custom_l = _card()
         custom_l.addWidget(_subheading("🎚️ 詳細"))
@@ -347,6 +371,9 @@ class AudioTab(QWidget):
             "「カスタム」プリセット選択時のみ編集可能。"
             "他プリセット時は現在の値を表示。"
         ))
+
+        self.eq = EQVisualizer()
+        custom_l.addWidget(self.eq)
 
         self.bitrate_combo = QComboBox()
         for kbps in (128, 192, 256, 320):
@@ -359,10 +386,12 @@ class AudioTab(QWidget):
         self._add_row(custom_l, "出力フォーマット", self.format_combo)
 
         self.bass_slider, self.bass_label = self._make_slider(0, 12, "dB")
+        self.bass_slider.valueChanged.connect(self._refresh_eq)
         self._add_row(custom_l, "重低音強化",
                       self._wrap_slider(self.bass_slider, self.bass_label))
 
         self.treble_slider, self.treble_label = self._make_slider(0, 6, "dB")
+        self.treble_slider.valueChanged.connect(self._refresh_eq)
         self._add_row(custom_l, "高音強化",
                       self._wrap_slider(self.treble_slider, self.treble_label))
 
@@ -390,7 +419,7 @@ class AudioTab(QWidget):
         layout.addStretch(1)
 
         self._load_into_controls(settings.audio_settings())
-        self._on_preset_changed(self.preset_combo.currentText())
+        self._on_preset_changed(settings.preset_name())
 
     def _add_row(self, parent: QVBoxLayout, label: str, widget: QWidget) -> None:
         row = QHBoxLayout()
@@ -417,7 +446,12 @@ class AudioTab(QWidget):
         return w
 
     def _on_preset_changed(self, name: str) -> None:
+        if name not in PRESETS:
+            return
         settings.set_preset_name(name)
+        # Reflect selected state on the grid of preset cards.
+        for n, c in self._preset_cards.items():
+            c.set_selected(n == name)
         a = settings.audio_settings()
         self._load_into_controls(a)
         is_custom = name == "カスタム"
@@ -448,6 +482,10 @@ class AudioTab(QWidget):
             max(0, self.sample_combo.findData(a.sample_rate)))
         self.loudnorm_cb.setChecked(a.loudness_normalize)
         self.dynaudnorm_cb.setChecked(a.dynaudnorm)
+        self._refresh_eq()
+
+    def _refresh_eq(self) -> None:
+        self.eq.set_values(self.bass_slider.value(), self.treble_slider.value())
 
     def _save_custom(self) -> None:
         a = AudioSettings(
@@ -513,6 +551,19 @@ class SettingsTab(QWidget):
         self.auto_launch_cb.toggled.connect(settings.set_auto_launch_apple_music)
         am_l.addWidget(self.auto_launch_cb)
         layout.addWidget(am_card)
+
+        nf_card, nf_l = _card()
+        nf_l.addWidget(_subheading("🔔 通知"))
+        self.flash_cb = QCheckBox(
+            "処理完了時にタスクバーを点滅 (非アクティブ時のみ)")
+        self.flash_cb.setChecked(settings.taskbar_flash_on_done())
+        self.flash_cb.toggled.connect(settings.set_taskbar_flash_on_done)
+        nf_l.addWidget(self.flash_cb)
+        self.toast_cb = QCheckBox("画面右下にトースト通知を表示")
+        self.toast_cb.setChecked(settings.show_toast_on_done())
+        self.toast_cb.toggled.connect(settings.set_show_toast_on_done)
+        nf_l.addWidget(self.toast_cb)
+        layout.addWidget(nf_card)
 
         ff_card, ff_l = _card()
         ff_l.addWidget(_subheading("🎬 ffmpeg"))
@@ -659,6 +710,12 @@ class Sidebar(QFrame):
         preset_lbl.setObjectName("sidebar_preset_label")
         outer.addWidget(preset_lbl)
 
+        # Persistent shortcut: open the configured output folder anytime.
+        self.open_folder_btn = QPushButton("📂  出力フォルダを開く")
+        self.open_folder_btn.setObjectName("nav_btn")
+        self.open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        outer.addWidget(self.open_folder_btn)
+
         self._group.idClicked.connect(self.nav_clicked.emit)
 
     def select(self, index: int) -> None:
@@ -704,8 +761,22 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(QSize(880, 560))
         self.setAcceptDrops(True)
 
+        # Look up the bundled icon. PyInstaller onefile extracts datas
+        # under sys._MEIPASS; running from source uses the repo root.
+        base = getattr(sys, "_MEIPASS", os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        icon_path = os.path.join(base, "resources", "icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
         from .style import QSS
         self.setStyleSheet(QSS)
+
+        # Restore previous window geometry (size, position, maximized state)
+        # if we have it stashed from a previous session.
+        geom = settings.window_geometry()
+        if geom:
+            self.restoreGeometry(geom)
 
         self._workers: list[ImportWorker] = []
 
@@ -731,6 +802,9 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
         self.sidebar.nav_clicked.connect(self.stack.setCurrentIndex)
+        self.sidebar.open_folder_btn.clicked.connect(
+            lambda: apple_music_helper.open_folder(
+                settings.output_folder(), log_cb=self.log_tab.append))
 
         # ----- Status bar ----- #
         self.status = QStatusBar()
@@ -754,13 +828,28 @@ class MainWindow(QMainWindow):
         self.drop_overlay = DropOverlay(self)
         self.drop_overlay.hide()
 
+        # ----- Toast manager for completion / error notifications ----- #
+        self.toasts = ToastManager(self)
+
         # ----- Wire up ----- #
         self.import_tab.request_import.connect(self._start_import)
         self.audio_tab.preset_changed.connect(self.sidebar.set_current_preset)
+        self.stack.currentChanged.connect(settings.set_last_tab_index)
+
+        # Restore the tab we left off on (after the stack is set up).
+        last = settings.last_tab_index()
+        if 0 <= last < self.stack.count():
+            self.stack.setCurrentIndex(last)
+            self.sidebar.select(last)
 
         # First-launch ffmpeg check: nudge the user to install it before
         # they hit any errors mid-import.
         QTimer.singleShot(300, self._check_ffmpeg_on_startup)
+
+    def closeEvent(self, e) -> None:  # noqa: D401
+        # Save geometry so the next session opens at the same size/place.
+        settings.set_window_geometry(bytes(self.saveGeometry()))
+        super().closeEvent(e)
 
     # ----- drag & drop (whole-window) ----------------------------------- #
     def dragEnterEvent(self, e: QDragEnterEvent) -> None:
@@ -782,6 +871,9 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
         self._reposition_overlay()
+        # Keep stacked toasts pinned to the bottom-right corner.
+        if hasattr(self, "toasts"):
+            self.toasts._relayout()
 
     def _show_drop_overlay(self) -> None:
         self._reposition_overlay()
@@ -813,7 +905,8 @@ class MainWindow(QMainWindow):
         self._ffmpeg_dialog_open = False
 
     # ----- import orchestration ----------------------------------------- #
-    def _start_import(self, source: str, is_url: bool) -> None:
+    def _start_import(self, source: str, is_url: bool,
+                      card: ImportItemCard | None = None) -> None:
         # Pre-flight: if ffmpeg isn't available, don't even start the
         # download — yt-dlp would crash partway through postprocessing.
         if not ffmpeg_helper.is_installed():
@@ -821,8 +914,10 @@ class MainWindow(QMainWindow):
                 reason="取り込み開始時のチェックで見つかりませんでした")
             return
 
-        card = ImportItemCard(source=source, is_url=is_url)
-        self.import_tab.queue.add(card)
+        if card is None:
+            card = ImportItemCard(source=source, is_url=is_url)
+            card.retry_requested.connect(self._retry_card)
+            self.import_tab.queue.add(card)
 
         worker = ImportWorker(
             source=source,
@@ -842,9 +937,17 @@ class MainWindow(QMainWindow):
         self._workers.append(worker)
         worker.start()
 
+    def _retry_card(self, card: ImportItemCard) -> None:
+        card.reset_for_retry()
+        self.log_tab.append(f"↻ リトライ: {card.source}")
+        self._start_import(card.source, card.is_url, card=card)
+
     def _on_import_failed(self, card: ImportItemCard, message: str) -> None:
         card.mark_error(message)
         self.log_tab.append(f"❌ {message}")
+        if settings.show_toast_on_done():
+            self.toasts.show("⚠️", "取り込み失敗",
+                             message[:120] + ("…" if len(message) > 120 else ""))
         if ffmpeg_helper.looks_like_missing_ffmpeg(message):
             self._show_ffmpeg_dialog(reason=message)
 
@@ -852,6 +955,10 @@ class MainWindow(QMainWindow):
                         summary: str, output_path: str) -> None:
         card.mark_success(output_path, summary)
         self.log_tab.append(f"✓ 完了: {summary}")
+        if settings.show_toast_on_done():
+            self.toasts.show("✓", "取り込み完了", summary)
+        if settings.taskbar_flash_on_done() and not self.isActiveWindow():
+            win_notify.flash_taskbar(int(self.winId()))
         if not output_path:
             return
         if settings.auto_reveal_in_explorer():

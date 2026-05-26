@@ -34,7 +34,8 @@ def _truncate(text: str, limit: int = 64) -> str:
 class ImportItemCard(QFrame):
     """Visual representation of one import job."""
 
-    dismissed = pyqtSignal(object)  # emits self
+    dismissed = pyqtSignal(object)        # emits self
+    retry_requested = pyqtSignal(object)  # emits self
 
     def __init__(self, source: str, is_url: bool) -> None:
         super().__init__()
@@ -42,7 +43,17 @@ class ImportItemCard(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self._source = source
+        self._is_url = is_url
         self._output_path: str | None = None
+
+    # Accessors for the parent to drive a retry without storing extra state.
+    @property
+    def source(self) -> str:
+        return self._source
+
+    @property
+    def is_url(self) -> bool:
+        return self._is_url
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(14, 12, 12, 12)
@@ -108,7 +119,17 @@ class ImportItemCard(QFrame):
         self._status.setText(f"❌ {message}")
         self._status.setObjectName("job_status_err")
         self._restyle(self._status)
-        self._show_dismiss_only()
+        self._progress.setValue(0)
+        self._show_error_actions()
+
+    def reset_for_retry(self) -> None:
+        """Restore visual state so the same card can be reused for a retry."""
+        self._output_path = None
+        self._progress.setValue(0)
+        self._status.setText("待機中…")
+        self._status.setObjectName("job_status")
+        self._restyle(self._status)
+        self._clear_actions()
 
     # -- internals ---------------------------------------------------------- #
 
@@ -141,6 +162,16 @@ class ImportItemCard(QFrame):
 
     def _show_dismiss_only(self) -> None:
         self._clear_actions()
+        self._add_dismiss()
+
+    def _show_error_actions(self) -> None:
+        self._clear_actions()
+        retry = QPushButton("↻")
+        retry.setObjectName("secondary")
+        retry.setToolTip("もう一度実行")
+        retry.setFixedWidth(40)
+        retry.clicked.connect(lambda: self.retry_requested.emit(self))
+        self._actions.addWidget(retry)
         self._add_dismiss()
 
     def _add_dismiss(self) -> None:
