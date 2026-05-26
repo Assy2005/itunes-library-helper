@@ -133,7 +133,8 @@ class ImportItemCard(QFrame):
             reveal.setToolTip("エクスプローラで開く")
             reveal.setFixedWidth(40)
             reveal.clicked.connect(
-                lambda: apple_music_helper.reveal_in_explorer(self._output_path or "")
+                lambda: apple_music_helper.reveal_in_explorer(
+                    self._output_path or "")
             )
             self._actions.addWidget(reveal)
         self._add_dismiss()

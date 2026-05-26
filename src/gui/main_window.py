@@ -855,9 +855,10 @@ class MainWindow(QMainWindow):
         if not output_path:
             return
         if settings.auto_reveal_in_explorer():
-            apple_music_helper.reveal_in_explorer(output_path)
+            apple_music_helper.reveal_in_explorer(
+                output_path, log_cb=self.log_tab.append)
         if settings.auto_launch_apple_music():
-            apple_music_helper.launch_apple_music()
+            apple_music_helper.launch_apple_music(log_cb=self.log_tab.append)
 
     # ----- status bar refresh ------------------------------------------- #
     def _refresh_status(self) -> None:
