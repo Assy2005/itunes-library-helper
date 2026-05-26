@@ -86,11 +86,16 @@ QTabBar::tab:hover:!selected {{
 }}
 
 /* ---------- Cards ---------- */
+/* IMPORTANT: do NOT use QSS `padding` on cards. Qt does not factor
+ * QSS padding into its layout size calculation for QFrame children,
+ * so adding padding here causes the frame to render larger than the
+ * layout thinks it is, and subsequent cards in a QVBoxLayout overlap
+ * the bottom of the previous one. Use the inner QVBoxLayout's
+ * contentsMargins (in _card()) for internal padding instead. */
 QFrame#card {{
     background: {COLORS['card']};
     border: 1px solid {COLORS['border']};
     border-radius: 12px;
-    padding: 4px;
 }}
 
 QLabel#heading {{
