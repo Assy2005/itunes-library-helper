@@ -1,82 +1,91 @@
-"""ffmpeg detection + assisted install.
+"""ffmpeg detection + assisted install via winget.
 
 ffmpeg is the most common missing dependency for first-time users. It
 is not a Python package — it's a separate binary that needs to be on
 PATH. This module:
 
-  * detects whether ffmpeg (and ffprobe, which yt-dlp also needs) are
-    resolvable;
+  * detects whether ffmpeg/ffprobe are reachable, with a fallback to
+    the winget-managed install path (so we can see a freshly-installed
+    ffmpeg even before PATH has been refreshed for our process);
   * identifies failure messages that point at ffmpeg, so the GUI can
     show the assist dialog instead of a raw stack trace;
-  * launches `winget` to install the standard `Gyan.FFmpeg` package
-    when the user asks for it.
-
-The actual UI is in src/gui/ffmpeg_dialog.py — this module is
-intentionally GUI-free so it can be tested headlessly.
+  * launches `winget install Gyan.FFmpeg` in a NEW visible console
+    window so UAC, progress, and any prompts behave normally — we do
+    NOT pipe stdout, because winget uses '\\r' spinner output that
+    deadlocks line-buffered readers.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 
-# Standard Microsoft winget package that ships ffmpeg + ffprobe + ffplay
-# and registers them on the system PATH.
 WINGET_PACKAGE_ID = "Gyan.FFmpeg"
-
-# Manual download page (used as fallback link).
 MANUAL_DOWNLOAD_URL = "https://www.gyan.dev/ffmpeg/builds/"
 
 
-def is_installed() -> bool:
-    """True only if BOTH ffmpeg and ffprobe are resolvable.
+def _winget_links_dir() -> Path:
+    """Where winget places shim executables for installed packages."""
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    return Path(base) / "Microsoft" / "WinGet" / "Links"
 
-    yt-dlp's postprocessing step needs ffprobe in addition to ffmpeg,
-    so checking only ffmpeg would still let the original error through.
+
+def is_installed() -> bool:
+    """True if BOTH ffmpeg and ffprobe are reachable.
+
+    yt-dlp's postprocessing step needs ffprobe in addition to ffmpeg.
+    We check PATH first, then the standard winget shim dir as a
+    fallback (handy right after a fresh install, before this process
+    has a chance to pick up the new PATH).
     """
-    return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+        return True
+
+    links = _winget_links_dir()
+    if (links / "ffmpeg.exe").exists() and (links / "ffprobe.exe").exists():
+        return True
+
+    return False
 
 
 def looks_like_missing_ffmpeg(message: str) -> bool:
-    """Heuristic: does this error string suggest ffmpeg/ffprobe is missing?"""
     if not message:
         return False
     text = message.lower()
-    needles = ("ffmpeg", "ffprobe")
-    return any(n in text for n in needles) and (
-        "not found" in text or "not on path" in text or "no such file" in text
-        or "could not find" in text or "is not on path" in text
-        or "not installed" in text
-    )
+    if "ffmpeg" not in text and "ffprobe" not in text:
+        return False
+    return any(s in text for s in (
+        "not found", "not on path", "no such file",
+        "could not find", "is not on path", "not installed",
+    ))
 
 
 def winget_available() -> bool:
     return sys.platform == "win32" and shutil.which("winget") is not None
 
 
-def install_via_winget() -> subprocess.Popen:
-    """Kick off `winget install Gyan.FFmpeg` and return the Popen handle.
+def launch_winget_install() -> None:
+    """Open a NEW visible console window running `winget install`.
 
-    The caller is responsible for streaming output and waiting for exit.
-    Returns immediately; does NOT block.
+    We deliberately don't pipe stdout — winget uses carriage-return
+    progress animation which would deadlock a line-buffered reader and
+    suppress the UAC prompt. The dialog polls is_installed() instead.
+
+    `cmd /k` keeps the console open after winget exits so the user can
+    read the final result.
     """
     if not winget_available():
-        raise RuntimeError("winget is not available on this machine.")
+        raise RuntimeError("winget が見つかりません。")
 
-    return subprocess.Popen(
-        [
-            "winget", "install",
-            "--id", WINGET_PACKAGE_ID,
-            "--source", "winget",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-            "--silent",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    cmd = (
+        f'winget install --id {WINGET_PACKAGE_ID} '
+        f'--accept-source-agreements --accept-package-agreements'
+    )
+    subprocess.Popen(
+        ["cmd.exe", "/c", "start", "ffmpeg のインストール", "cmd.exe", "/k", cmd],
+        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+        close_fds=True,
     )
