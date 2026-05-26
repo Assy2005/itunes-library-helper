@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPointF, QSize, Qt
 from PyQt6.QtGui import (
     QColor,
     QFont,
@@ -44,15 +44,28 @@ def _treble_factor(freq_hz: float) -> float:
 
 
 class EQVisualizer(QWidget):
+    HEIGHT = 140
+
     def __init__(self) -> None:
         super().__init__()
         self._bass_db = 0
         self._treble_db = 0
-        # setFixedHeight is critical: with only a sizeHint the layout
-        # was happily giving the widget extra vertical space and the
-        # painted EQ overlapped the slider rows below.
-        self.setFixedHeight(140)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Triple-belt fix for the layout-allocates-zero-height bug:
+        # setFixedHeight alone wasn't enough — without an explicit
+        # sizeHint(), the QVBoxLayout reserved no vertical space for
+        # this widget and the form rows below it ended up drawn under
+        # the EQ curve.
+        self.setFixedHeight(self.HEIGHT)
+        self.setMinimumHeight(self.HEIGHT)
+        self.setMaximumHeight(self.HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Fixed)
+
+    def sizeHint(self) -> QSize:  # noqa: D401
+        return QSize(420, self.HEIGHT)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: D401
+        return QSize(200, self.HEIGHT)
 
     def set_values(self, bass_db: int, treble_db: int) -> None:
         self._bass_db = bass_db
