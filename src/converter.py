@@ -2,8 +2,7 @@
 
 Builds an ffmpeg filter chain from AudioSettings, optionally adding bass
 boost, treble boost, denoising, loudness normalization, and resampling.
-Always re-encodes (so iTunes-compatible AAC/MP3 falls out the other
-side).
+Always re-encodes to AAC/MP3 (Apple Music-compatible output).
 """
 from __future__ import annotations
 
@@ -64,11 +63,3 @@ def process(src: str, out_dir: str, settings: AudioSettings) -> str:
 
     subprocess.run(cmd, check=True, capture_output=True)
     return out_path
-
-
-# Backwards-compatible helper used elsewhere in the codebase.
-ITUNES_NATIVE_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".aiff", ".aif"}
-
-
-def needs_conversion(path: str) -> bool:
-    return os.path.splitext(path)[1].lower() not in ITUNES_NATIVE_EXTS

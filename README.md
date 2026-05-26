@@ -1,22 +1,21 @@
 <div align="center">
 
-# 🎵 iTunes Library Helper
+# 🎵 Apple Music Library Helper
 
-### *URLからでも、ファイルからでも。あなたの音楽を最速でライブラリへ。*
+### *URLからでも、ファイルからでも。あなたの音楽を最速で Apple Music へ。*
 
 <br />
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg?style=for-the-badge&logo=windows&logoColor=white)](#)
+[![Apple Music](https://img.shields.io/badge/For-Apple%20Music-fc3c44.svg?style=for-the-badge&logo=apple-music&logoColor=white)](#)
 [![GUI: PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52.svg?style=for-the-badge&logo=qt&logoColor=white)](https://pypi.org/project/PyQt6/)
-[![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange.svg?style=for-the-badge)](#)
 
 <br />
 
-旧 iTunes の「ファイルを追加」フローは古く、分かりづらく、
-**動画URL** や **非対応フォーマット** からの取り込みには毎回手作業が必要でした。
-このアプリは、その面倒さをすべて吸収します。
+Apple Music for Windows は良いアプリですが、**「動画URLから音源を取って取り込む」「FLACなど未対応形式を変換して取り込む」「重低音やノイズ除去をかけて取り込む」**といったワークフローはサポートされていません。
+このツールはそこを埋めます — URL を貼る or ファイルを放り込むだけで、高音質化された .m4a が出来上がり、Apple Music にドラッグするだけの状態でお膳立てします。
 
 </div>
 
@@ -40,8 +39,8 @@
 <tr>
 <td width="33%" align="center" valign="top">
 <h3>🌐</h3>
-<b>URLから直接追加</b><br/>
-<sub>YouTube等の動画URL、<br/>または <code>.mp3</code> / <code>.wav</code> の直リンクを<br/>貼るだけで取り込み</sub>
+<b>URLから直接取り込み</b><br/>
+<sub>YouTube等の動画URL、<br/>または <code>.mp3</code> / <code>.wav</code> の直リンクを<br/>貼るだけで音源化</sub>
 </td>
 <td width="33%" align="center" valign="top">
 <h3>📁</h3>
@@ -68,7 +67,7 @@
 <td width="33%" align="center" valign="top">
 <h3>🎵</h3>
 <b>Apple Music 取り込み補助</b><br/>
-<sub>処理完了後、エクスプローラで<br/>ファイル選択 + Apple Music起動を<br/>自動実行 → ドラッグするだけ</sub>
+<sub>処理完了後、エクスプローラで<br/>ファイル選択 + Apple Music 起動を<br/>自動実行 → ドラッグするだけ</sub>
 </td>
 </tr>
 </table>
@@ -88,38 +87,33 @@
 
 ---
 
-## 🏗️ アーキテクチャ
+## 🔄 ワークフロー
 
 ```mermaid
 flowchart LR
-    subgraph UI[" 🖥️  GUI Layer "]
-        MW[MainWindow<br/>PyQt6]
-    end
-    subgraph WORK[" ⚙️  Worker Layer "]
-        IW[ImportWorker<br/>QThread]
-    end
-    subgraph CORE[" 🎯  Core Modules "]
-        DL[downloader<br/>yt-dlp / requests]
-        CV[converter<br/>ffmpeg]
-        MD[metadata<br/>mutagen]
-        IT[itunes_client<br/>COM API]
-    end
-    subgraph EXT[" 🍎  External "]
-        ITUNES[(iTunes<br/>Library)]
-    end
+    A([URL or<br/>音楽ファイル]) --> B[ダウンロード<br/>yt-dlp / requests]
+    B --> C[音質処理<br/>ffmpeg フィルター]
+    C --> D[出力フォルダに<br/>保存]
+    D --> E[エクスプローラ<br/>自動オープン]
+    D --> F[Apple Music<br/>自動起動]
+    E --> G([あとは<br/>ドラッグするだけ])
+    F --> G
 
-    MW -->|URL or File| IW
-    IW --> DL
-    IW --> CV
-    IW --> MD
-    IW --> IT
-    IT --> ITUNES
-
-    style UI fill:#1e293b,stroke:#3b82f6,color:#fff
-    style WORK fill:#1e293b,stroke:#a855f7,color:#fff
-    style CORE fill:#1e293b,stroke:#10b981,color:#fff
-    style EXT fill:#1e293b,stroke:#f43f5e,color:#fff
+    style A fill:#1e293b,stroke:#3b82f6,color:#fff
+    style C fill:#1e293b,stroke:#10b981,color:#fff
+    style D fill:#1e293b,stroke:#a855f7,color:#fff
+    style G fill:#fc3c44,stroke:#fc3c44,color:#fff
 ```
+
+---
+
+## ❓ なぜ「ドラッグするだけ」止まり？
+
+**Apple Music for Windows には外部から自動でライブラリ追加するための公式APIが存在しません。** (Apple Developer Forum 公式回答)
+
+旧iTunesにあった COM インターフェースは新 Apple Music アプリには引き継がれず、AppleScript は macOS 限定、Microsoft Store版 Apple Music もスクリプタブルではありません。Apple Music API (REST) は **カタログ曲をライブラリに紐付ける** ことしかできず、任意のローカルファイルをアップロードするエンドポイントはありません。
+
+このツールは「最後のドラッグ操作だけは人間がする」前提で、それ以外の面倒な部分 (URL DL / 変換 / 音質処理 / フォルダ整理 / Apple Music 起動) を全自動化することで、実用上限まで近づけたものです。
 
 ---
 
@@ -130,33 +124,30 @@ flowchart LR
 | 項目 | 要件 |
 |------|------|
 | **OS** | Windows 10 / 11 |
-| **Python** | 3.10 以上 |
-| **Apple Music for Windows** | （推奨）処理完了後に自動起動 → ドラッグで取り込み |
-| **iTunes** | （旧版オプション）あれば自動でライブラリ追加 |
-| **ffmpeg** | 音質処理 / フォーマット変換を使う場合は必須 |
+| **Apple Music for Windows** | Microsoft Store から無料インストール |
+| **ffmpeg** | 音質処理 / フォーマット変換に必須 |
+| **Python** | exe を使う場合は不要。ソースから動かす場合は 3.10+ |
 
-> 💡 **新しい Apple Music for Windows には公式の自動追加APIが存在しません** (Apple確認済み)。
-> このアプリは **「処理完了 → エクスプローラで対象ファイルを選択表示 + Apple Music を起動」**
-> を自動化することで、最後の "ドラッグするだけ" の状態をお膳立てします。
->
-> 旧 **iTunes** をお使いの方は COM API 経由で**完全自動**でライブラリ追加できます (設定タブでON)。
+### exe版 (推奨)
 
-### インストール & 起動
+[Releases](https://github.com/Assy2005/itunes-library-helper/releases/latest) から `itunes-library-helper.exe` をダウンロードしてダブルクリック。
+
+### ソースから起動
 
 ```powershell
-# 1. クローン
 git clone https://github.com/Assy2005/itunes-library-helper.git
 cd itunes-library-helper
-
-# 2. 仮想環境を作成
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-
-# 3. 依存関係をインストール
 pip install -r requirements.txt
-
-# 4. 起動！
 python -m src.main
+```
+
+### ビルド
+
+```powershell
+.\build.ps1
+# → dist\itunes-library-helper.exe
 ```
 
 ---
@@ -168,15 +159,20 @@ itunes-library-helper/
 ├── 📄 README.md
 ├── 📄 LICENSE                  ← MIT
 ├── 📄 requirements.txt
-├── 📄 .gitignore
+├── 📄 itunes-library-helper.spec
+├── 📄 build.ps1
+├── 📁 .github/workflows/       ← タグpushで自動ビルド&リリース
 └── 📁 src/
-    ├── 🐍 main.py              ← エントリポイント
-    ├── 🍎 itunes_client.py     ← iTunes COM API ラッパー
-    ├── 🌐 downloader.py        ← yt-dlp / 直リンク ダウンローダ
-    ├── 🔄 converter.py         ← ffmpeg フォーマット変換
-    ├── 🏷️  metadata.py          ← mutagen タグ読み書き
+    ├── 🐍 main.py               ← エントリポイント
+    ├── 🎚️  audio_presets.py      ← プリセット定義
+    ├── 🌐 downloader.py         ← yt-dlp / 直リンクDL
+    ├── 🔄 converter.py          ← ffmpeg フィルターチェーン
+    ├── 🏷️  metadata.py           ← mutagen タグ操作
+    ├── 🎵 apple_music_helper.py ← エクスプローラ&アプリ起動
+    ├── ⚙️  settings.py           ← QSettings 永続化
     └── 📁 gui/
-        └── 🖥️  main_window.py    ← メインウィンドウ
+        ├── 🖥️  main_window.py    ← メインウィンドウ
+        └── 🎨 style.py          ← Apple Music 風 QSS
 ```
 
 ---
@@ -188,11 +184,11 @@ itunes-library-helper/
 | カテゴリ | ライブラリ | 役割 |
 |:--:|:--:|:--|
 | **GUI** | [PyQt6](https://pypi.org/project/PyQt6/) | デスクトップUI |
-| **iTunes連携** | [pywin32](https://pypi.org/project/pywin32/) | COM API 経由でライブラリ操作 |
 | **動画/音声DL** | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | YouTube等から音源抽出 |
 | **HTTP** | [requests](https://pypi.org/project/requests/) | 直リンク・アートワーク取得 |
 | **タグ** | [mutagen](https://pypi.org/project/mutagen/) | ID3 / FLAC / MP4 タグ編集 |
-| **変換** | [ffmpeg](https://ffmpeg.org/) (via [ffmpeg-python](https://pypi.org/project/ffmpeg-python/)) | フォーマット変換 |
+| **音質処理** | [ffmpeg](https://ffmpeg.org/) | フィルターチェーン |
+| **パッケージング** | [PyInstaller](https://pyinstaller.org/) | onefile .exe |
 
 </div>
 
@@ -204,11 +200,11 @@ itunes-library-helper/
 - [x] URL / ファイル取り込みの基本フロー
 - [x] 非同期 (QThread) 処理
 - [x] PyInstaller でのワンファイル配布
-- [x] **音質プリセット 5種 + カスタム** (bass / treble / denoise / loudnorm / dynaudnorm / resample)
-- [x] **iTunes 任意化 — ファイル出力モード**
-- [x] **Apple Music 風 GUI** (タブ + カードUI + ピンクアクセント)
-- [x] **設定の永続化** (QSettings)
-- [x] **Apple Music 取り込み補助** (エクスプローラ自動表示 + Apple Music 起動)
+- [x] 音質プリセット 5種 + カスタム (bass / treble / denoise / loudnorm / dynaudnorm / resample)
+- [x] Apple Music 風 GUI (タブ + カードUI + ピンクアクセント)
+- [x] 設定の永続化 (QSettings)
+- [x] Apple Music 取り込み補助 (エクスプローラ自動表示 + Apple Music 自動起動)
+- [x] **iTunes 依存を完全除去、Apple Music 専用化**
 - [ ] OLE Drag&Drop シミュレーションで Apple Music 完全自動化 (R&D)
 - [ ] yt-dlp / ffmpeg 進捗の詳細表示
 - [ ] メタデータ編集ダイアログ
@@ -233,6 +229,6 @@ Issue / PR 歓迎です。バグ報告や機能リクエストはお気軽にど
 
 <br/>
 
-<sub>Made with ☕ and a long-standing frustration with iTunes' "Add File" dialog.</sub>
+<sub>Made with ☕ and a long-standing frustration with music import workflows on Windows.</sub>
 
 </div>

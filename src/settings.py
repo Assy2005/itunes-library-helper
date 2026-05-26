@@ -9,6 +9,9 @@ from PyQt6.QtCore import QSettings
 from .audio_presets import DEFAULT_PRESET, PRESETS, AudioSettings
 
 
+# Storage identifiers match the repository name and intentionally do NOT
+# follow the app's UI branding. Renaming these would orphan every user's
+# previously-saved preset, output folder, and audio settings.
 _ORG = "itunes-library-helper"
 _APP = "itunes-library-helper"
 
@@ -18,15 +21,6 @@ def _qs() -> QSettings:
 
 
 # ---- output destinations ----
-
-def add_to_itunes() -> bool:
-    # Default OFF in v0.3+: most users now use Apple Music, not iTunes.
-    return _qs().value("output/add_to_itunes", False, type=bool)
-
-
-def set_add_to_itunes(v: bool) -> None:
-    _qs().setValue("output/add_to_itunes", v)
-
 
 def auto_reveal_in_explorer() -> bool:
     return _qs().value("output/auto_reveal", True, type=bool)

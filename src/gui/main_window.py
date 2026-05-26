@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import apple_music_helper, converter, downloader, itunes_client, settings
+from .. import apple_music_helper, converter, downloader, settings
 from ..audio_presets import PRESETS, AudioSettings
 
 
@@ -62,11 +62,11 @@ def _hint(text: str) -> QLabel:
 # --------------------------------------------------------------------------- #
 
 class ImportWorker(QThread):
-    """Pipeline: (download?) → ffmpeg process → (iTunes add | file output)."""
+    """Pipeline: (download?) → ffmpeg processing → file output."""
 
     log = pyqtSignal(str)
     progress = pyqtSignal(int)              # 0..100
-    finished_ok = pyqtSignal(str, str)      # message, output_path (path "" if iTunes-added)
+    finished_ok = pyqtSignal(str, str)      # message, output_path
     failed = pyqtSignal(str)
 
     def __init__(
@@ -76,7 +76,6 @@ class ImportWorker(QThread):
         work_dir: str,
         out_dir: str,
         audio: AudioSettings,
-        add_to_itunes: bool,
     ) -> None:
         super().__init__()
         self.source = source
@@ -84,7 +83,6 @@ class ImportWorker(QThread):
         self.work_dir = work_dir
         self.out_dir = out_dir
         self.audio = audio
-        self.add_to_itunes = add_to_itunes
 
     def run(self) -> None:
         try:
@@ -107,16 +105,8 @@ class ImportWorker(QThread):
 
             self.progress.emit(80)
 
-            if self.add_to_itunes and itunes_client.is_available():
-                self.log.emit("🍎 iTunes ライブラリに追加中…")
-                added = itunes_client.ITunesClient().add_file(path)
-                name = added.name or os.path.basename(path)
-                tail = f" — {added.artist}" if added.artist else ""
-                self.finished_ok.emit(f"✓ iTunes に追加: {name}{tail}", "")
-            else:
-                self.log.emit(f"📁 出力完了: {path}")
-                self.finished_ok.emit(f"✓ 完了: {os.path.basename(path)}", path)
-
+            self.log.emit(f"📁 出力完了: {path}")
+            self.finished_ok.emit(f"✓ 完了: {os.path.basename(path)}", path)
             self.progress.emit(100)
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
@@ -275,7 +265,7 @@ class AudioTab(QWidget):
         self._add_row(custom_l, "ビットレート", self.bitrate_combo)
 
         self.format_combo = QComboBox()
-        self.format_combo.addItem("AAC (.m4a) — iTunes標準", "m4a")
+        self.format_combo.addItem("AAC (.m4a) — Apple Music 標準", "m4a")
         self.format_combo.addItem("MP3 (.mp3) — 汎用", "mp3")
         self._add_row(custom_l, "出力フォーマット", self.format_combo)
 
@@ -404,14 +394,14 @@ class SettingsTab(QWidget):
         row.addWidget(browse)
         out_l.addLayout(row)
         out_l.addWidget(_hint("音質処理後のファイルがここに保存されます。"
-                              "iTunes連携OFF時はここから手動で取り込んでください。"))
+                              "ここから Apple Music にドラッグして取り込みます。"))
         layout.addWidget(out_card)
 
         am_card, am_l = _card()
-        am_l.addWidget(_subheading("🎵 Apple Music 連携 (推奨)"))
+        am_l.addWidget(_subheading("🎵 Apple Music 連携"))
         am_l.addWidget(_hint(
-            "Apple Music for Windows には外部から自動追加する公式APIがないため、"
-            "処理完了後にエクスプローラでファイルを選択表示 + Apple Music を起動して、"
+            "Apple Music for Windows には外部から自動追加する公式APIがありません。"
+            "代わりに、処理完了後にエクスプローラでファイルを選択表示 + Apple Music を起動して、"
             "ドラッグするだけの状態でお膳立てします。"
         ))
         self.auto_reveal_cb = QCheckBox("処理完了後にエクスプローラでファイルを選択表示")
@@ -424,23 +414,6 @@ class SettingsTab(QWidget):
         self.auto_launch_cb.toggled.connect(settings.set_auto_launch_apple_music)
         am_l.addWidget(self.auto_launch_cb)
         layout.addWidget(am_card)
-
-        it_card, it_l = _card()
-        it_l.addWidget(_subheading("🍎 iTunes 連携 (旧)"))
-        it_l.addWidget(_hint(
-            "旧iTunes (Microsoft Store版 / デスクトップ版) をお使いの場合のみ。"
-            "新しい Apple Music アプリ単体では使えません。"
-        ))
-        self.itunes_cb = QCheckBox("取り込み時に自動で iTunes ライブラリに追加")
-        self.itunes_cb.setChecked(settings.add_to_itunes())
-        self.itunes_cb.toggled.connect(settings.set_add_to_itunes)
-        it_l.addWidget(self.itunes_cb)
-
-        itunes_ok = itunes_client.is_available()
-        status = QLabel("● iTunes 検出済み" if itunes_ok else "● iTunes 未検出 — 上のApple Music連携をご利用ください")
-        status.setObjectName("status_ok" if itunes_ok else "status_warn")
-        it_l.addWidget(status)
-        layout.addWidget(it_card)
 
         ff_card, ff_l = _card()
         ff_l.addWidget(_subheading("🎬 ffmpeg"))
@@ -489,7 +462,7 @@ class LogTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("iTunes Library Helper")
+        self.setWindowTitle("Apple Music Library Helper")
         self.resize(880, 640)
         self.setAcceptDrops(True)
 
@@ -536,7 +509,6 @@ class MainWindow(QMainWindow):
             work_dir=settings.work_folder(),
             out_dir=settings.output_folder(),
             audio=settings.audio_settings(),
-            add_to_itunes=settings.add_to_itunes(),
         )
         worker.log.connect(self.log_tab.append)
         worker.progress.connect(self.import_tab.set_progress)
@@ -548,8 +520,6 @@ class MainWindow(QMainWindow):
 
     def _on_import_done(self, message: str, output_path: str) -> None:
         self.log_tab.append(message)
-        # output_path is empty when iTunes did the add directly — no manual
-        # drag needed in that case.
         if not output_path:
             return
         if settings.auto_reveal_in_explorer():

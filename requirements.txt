@@ -1,9 +1,6 @@
 # GUI
 PyQt6>=6.6.0
 
-# iTunes COM API (Windows only)
-pywin32>=306; sys_platform == "win32"
-
 # Video / audio URL download
 yt-dlp>=2024.1.0
 

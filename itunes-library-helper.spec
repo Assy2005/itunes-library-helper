@@ -13,14 +13,6 @@ hidden = []
 hidden += collect_submodules("yt_dlp")
 # mutagen loads tag handlers by name.
 hidden += collect_submodules("mutagen")
-# pywin32 COM client uses runtime-generated modules.
-hidden += [
-    "win32com",
-    "win32com.client",
-    "win32com.client.dynamic",
-    "pythoncom",
-    "pywintypes",
-]
 
 
 a = Analysis(
