@@ -1,12 +1,24 @@
-"""Apple Music-styled main window."""
+"""Apple Music Library Helper — main application window.
+
+Layout:
+    ┌──────────────────────────────────────────┐
+    │ Sidebar │       Content (QStackedWidget) │
+    │         ├────────────────────────────────┤
+    │         │       Status bar               │
+    └──────────────────────────────────────────┘
+
+A full-window drop overlay covers the central area whenever a drag of
+file URLs enters the main window, regardless of which tab is active.
+"""
 from __future__ import annotations
 
 import os
 import shutil
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -16,20 +28,25 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMainWindow,
-    QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSlider,
-    QTabWidget,
+    QStackedWidget,
+    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
 from .. import apple_music_helper, converter, downloader, settings
 from ..audio_presets import PRESETS, AudioSettings
+from .import_card import ImportItemCard
 
+
+# --------------------------------------------------------------------------- #
+# Small UI helpers                                                            #
+# --------------------------------------------------------------------------- #
 
 def _card(layout_cls=QVBoxLayout) -> tuple[QFrame, QVBoxLayout | QHBoxLayout]:
-    """Create a styled card frame with an inner layout."""
     frame = QFrame()
     frame.setObjectName("card")
     inner = layout_cls(frame)
@@ -62,11 +79,16 @@ def _hint(text: str) -> QLabel:
 # --------------------------------------------------------------------------- #
 
 class ImportWorker(QThread):
-    """Pipeline: (download?) → ffmpeg processing → file output."""
+    """Pipeline: (download?) → ffmpeg processing → file output.
+
+    Emits short `status` strings for the per-job card and verbose `log`
+    strings for the global log tab.
+    """
 
     log = pyqtSignal(str)
-    progress = pyqtSignal(int)              # 0..100
-    finished_ok = pyqtSignal(str, str)      # message, output_path
+    status = pyqtSignal(str)
+    progress = pyqtSignal(int)
+    finished_ok = pyqtSignal(str, str)      # summary, output_path
     failed = pyqtSignal(str)
 
     def __init__(
@@ -89,6 +111,7 @@ class ImportWorker(QThread):
             self.progress.emit(5)
 
             if self.is_url:
+                self.status.emit("⬇️  ダウンロード中…")
                 self.log.emit(f"⬇️  ダウンロード開始: {self.source}")
                 result = downloader.download(self.source, self.work_dir)
                 path = result.path
@@ -98,18 +121,78 @@ class ImportWorker(QThread):
 
             self.progress.emit(45)
 
-            self.log.emit(f"🎚️  音質処理中 (preset={settings.preset_name()}, "
-                          f"{self.audio.bitrate_kbps}kbps {self.audio.output_format})")
+            preset = settings.preset_name()
+            self.status.emit(
+                f"🎚️  音質処理 ({preset} ・ {self.audio.bitrate_kbps}kbps)"
+            )
+            self.log.emit(
+                f"🎚️  音質処理中 (preset={preset}, "
+                f"{self.audio.bitrate_kbps}kbps {self.audio.output_format})"
+            )
             path = converter.process(path, self.out_dir, self.audio)
             self.log.emit(f"   → {os.path.basename(path)}")
 
-            self.progress.emit(80)
+            self.progress.emit(95)
 
+            self.status.emit("✓ 完了")
             self.log.emit(f"📁 出力完了: {path}")
-            self.finished_ok.emit(f"✓ 完了: {os.path.basename(path)}", path)
+            self.finished_ok.emit(os.path.basename(path), path)
             self.progress.emit(100)
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
+
+
+# --------------------------------------------------------------------------- #
+# Import queue widget                                                         #
+# --------------------------------------------------------------------------- #
+
+class ImportQueue(QWidget):
+    """A vertical stack of ImportItemCard widgets with an empty state."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(8)
+
+        self._empty = QLabel(
+            "📭  まだ取り込みがありません\n\n"
+            "上のURL欄に貼り付けるか、\nウィンドウのどこにでも音楽ファイルをドロップしてください。"
+        )
+        self._empty.setObjectName("empty_state")
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        outer.addWidget(self._empty)
+
+        self._cards_layout = QVBoxLayout()
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(8)
+        outer.addLayout(self._cards_layout)
+        outer.addStretch(1)
+
+        self._cards: list[ImportItemCard] = []
+
+    def add(self, card: ImportItemCard) -> None:
+        self._cards.append(card)
+        card.dismissed.connect(self.remove)
+        self._cards_layout.insertWidget(0, card)  # newest at top
+        self._empty.setVisible(False)
+
+    def remove(self, card: ImportItemCard) -> None:
+        if card in self._cards:
+            self._cards.remove(card)
+            self._cards_layout.removeWidget(card)
+            card.deleteLater()
+        if not self._cards:
+            self._empty.setVisible(True)
+
+    def active_count(self) -> int:
+        """Number of jobs that haven't finished yet (best-effort)."""
+        n = 0
+        for c in self._cards:
+            # Cards that are done style their status as job_status_ok/err.
+            if c.findChild(QLabel, "job_status") is not None:
+                n += 1
+        return n
 
 
 # --------------------------------------------------------------------------- #
@@ -126,8 +209,11 @@ class ImportTab(QWidget):
         layout.setSpacing(16)
 
         layout.addWidget(_heading("音楽を追加"))
-        layout.addWidget(_hint("URL（YouTube などの動画 / .mp3 などの直リンク）または"
-                               "ローカルの音楽ファイルから取り込めます。"))
+        layout.addWidget(_hint(
+            "URL（YouTube などの動画 / .mp3 などの直リンク）または"
+            "ローカルの音楽ファイルから取り込めます。"
+            "ウィンドウのどこにでもドロップ可能です。"
+        ))
 
         # URL card
         url_card, url_l = _card()
@@ -135,76 +221,26 @@ class ImportTab(QWidget):
         row = QHBoxLayout()
         row.setSpacing(8)
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("https://www.youtube.com/watch?v=…  または  https://example.com/song.mp3")
+        self.url_input.setPlaceholderText(
+            "https://www.youtube.com/watch?v=…  または  https://example.com/song.mp3"
+        )
         self.url_input.returnPressed.connect(self._submit_url)
         url_btn = QPushButton("追加")
         url_btn.clicked.connect(self._submit_url)
         row.addWidget(self.url_input, 1)
         row.addWidget(url_btn)
         url_l.addLayout(row)
-        layout.addWidget(url_card)
 
-        # File card
-        file_card, file_l = _card()
-        file_l.addWidget(_subheading("📁 ファイルから追加"))
-        self.drop_target = QLabel("ここに音楽ファイルをドラッグ&ドロップ\n— または —")
-        self.drop_target.setObjectName("drop_target")
-        self.drop_target.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        file_l.addWidget(self.drop_target)
-        pick_btn = QPushButton("ファイルを選択…")
+        pick_btn = QPushButton("📁 ファイルを選択…")
         pick_btn.setObjectName("secondary")
         pick_btn.clicked.connect(self._pick_files)
-        file_l.addWidget(pick_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(file_card)
+        url_l.addWidget(pick_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(url_card)
 
-        # Progress
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-        layout.addWidget(self.progress)
-
-        # Post-processing hint banner — appears after a successful import
-        self.hint_card = QFrame()
-        self.hint_card.setObjectName("card")
-        hint_l = QVBoxLayout(self.hint_card)
-        hint_l.setContentsMargins(20, 16, 20, 16)
-        hint_l.setSpacing(8)
-        self.hint_title = QLabel("🎵 Apple Music にドラッグして取り込み")
-        self.hint_title.setObjectName("subheading")
-        self.hint_body = QLabel(
-            "ファイルがエクスプローラで選択された状態で開き、Apple Music も起動しました。\n"
-            "ハイライトされたファイルを Apple Music のウィンドウにドラッグすると、"
-            "あなたのライブラリに追加されます。"
-        )
-        self.hint_body.setObjectName("hint")
-        self.hint_body.setWordWrap(True)
-        hint_btns = QHBoxLayout()
-        self.reveal_btn = QPushButton("📂 もう一度エクスプローラで開く")
-        self.reveal_btn.setObjectName("secondary")
-        self.launch_btn = QPushButton("🎵 Apple Music を起動")
-        self.launch_btn.setObjectName("secondary")
-        hint_btns.addWidget(self.reveal_btn)
-        hint_btns.addWidget(self.launch_btn)
-        hint_btns.addStretch(1)
-        hint_l.addWidget(self.hint_title)
-        hint_l.addWidget(self.hint_body)
-        hint_l.addLayout(hint_btns)
-        self.hint_card.setVisible(False)
-        layout.addWidget(self.hint_card)
-
-        self._last_output_path: str | None = None
-        self.reveal_btn.clicked.connect(self._reveal_again)
-        self.launch_btn.clicked.connect(lambda: apple_music_helper.launch_apple_music())
-
-        layout.addStretch(1)
-
-    def show_post_import_hint(self, output_path: str) -> None:
-        self._last_output_path = output_path
-        self.hint_card.setVisible(True)
-
-    def _reveal_again(self) -> None:
-        if self._last_output_path:
-            apple_music_helper.reveal_in_explorer(self._last_output_path)
+        # Queue label + queue
+        layout.addWidget(_subheading("📋 取り込みキュー"))
+        self.queue = ImportQueue()
+        layout.addWidget(self.queue, 1)
 
     def _submit_url(self) -> None:
         url = self.url_input.text().strip()
@@ -215,13 +251,11 @@ class ImportTab(QWidget):
     def _pick_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "音楽ファイルを選択", "",
-            "Audio Files (*.mp3 *.m4a *.aac *.wav *.flac *.ogg *.opus *.aiff);;All Files (*.*)",
+            "Audio Files (*.mp3 *.m4a *.aac *.wav *.flac *.ogg *.opus *.aiff);;"
+            "All Files (*.*)",
         )
         for p in paths:
             self.request_import.emit(p, False)
-
-    def set_progress(self, v: int) -> None:
-        self.progress.setValue(v)
 
 
 # --------------------------------------------------------------------------- #
@@ -229,6 +263,8 @@ class ImportTab(QWidget):
 # --------------------------------------------------------------------------- #
 
 class AudioTab(QWidget):
+    preset_changed = pyqtSignal(str)
+
     def __init__(self) -> None:
         super().__init__()
         layout = QVBoxLayout(self)
@@ -236,10 +272,11 @@ class AudioTab(QWidget):
         layout.setSpacing(16)
 
         layout.addWidget(_heading("音質設定"))
-        layout.addWidget(_hint("プリセットを選ぶか、カスタムで細かく調整できます。"
-                               "変更内容は次回起動時にも保持されます。"))
+        layout.addWidget(_hint(
+            "プリセットを選ぶか、カスタムで細かく調整できます。"
+            "変更内容は次回起動時にも保持されます。"
+        ))
 
-        # Preset selector card
         preset_card, preset_l = _card()
         preset_l.addWidget(_subheading("🎛️ プリセット"))
         row = QHBoxLayout()
@@ -254,10 +291,12 @@ class AudioTab(QWidget):
         preset_l.addWidget(self.preset_desc)
         layout.addWidget(preset_card)
 
-        # Custom controls card
         custom_card, custom_l = _card()
         custom_l.addWidget(_subheading("🎚️ 詳細"))
-        custom_l.addWidget(_hint("「カスタム」プリセット選択時のみ編集可能。他プリセット時は現在の値を表示。"))
+        custom_l.addWidget(_hint(
+            "「カスタム」プリセット選択時のみ編集可能。"
+            "他プリセット時は現在の値を表示。"
+        ))
 
         self.bitrate_combo = QComboBox()
         for kbps in (128, 192, 256, 320):
@@ -270,13 +309,16 @@ class AudioTab(QWidget):
         self._add_row(custom_l, "出力フォーマット", self.format_combo)
 
         self.bass_slider, self.bass_label = self._make_slider(0, 12, "dB")
-        self._add_row(custom_l, "重低音強化", self._wrap_slider(self.bass_slider, self.bass_label))
+        self._add_row(custom_l, "重低音強化",
+                      self._wrap_slider(self.bass_slider, self.bass_label))
 
         self.treble_slider, self.treble_label = self._make_slider(0, 6, "dB")
-        self._add_row(custom_l, "高音強化", self._wrap_slider(self.treble_slider, self.treble_label))
+        self._add_row(custom_l, "高音強化",
+                      self._wrap_slider(self.treble_slider, self.treble_label))
 
         self.denoise_slider, self.denoise_label = self._make_slider(0, 3, "段階")
-        self._add_row(custom_l, "ノイズ除去", self._wrap_slider(self.denoise_slider, self.denoise_label))
+        self._add_row(custom_l, "ノイズ除去",
+                      self._wrap_slider(self.denoise_slider, self.denoise_label))
 
         self.sample_combo = QComboBox()
         self.sample_combo.addItem("そのまま (passthrough)", 0)
@@ -342,14 +384,18 @@ class AudioTab(QWidget):
             "カスタム": "下のスライダーで全パラメータを個別調整できます。",
         }
         self.preset_desc.setText(descriptions.get(name, ""))
+        self.preset_changed.emit(name)
 
     def _load_into_controls(self, a: AudioSettings) -> None:
-        self.bitrate_combo.setCurrentIndex(max(0, self.bitrate_combo.findData(a.bitrate_kbps)))
-        self.format_combo.setCurrentIndex(max(0, self.format_combo.findData(a.output_format)))
+        self.bitrate_combo.setCurrentIndex(
+            max(0, self.bitrate_combo.findData(a.bitrate_kbps)))
+        self.format_combo.setCurrentIndex(
+            max(0, self.format_combo.findData(a.output_format)))
         self.bass_slider.setValue(a.bass_gain_db)
         self.treble_slider.setValue(a.treble_gain_db)
         self.denoise_slider.setValue(a.denoise_strength)
-        self.sample_combo.setCurrentIndex(max(0, self.sample_combo.findData(a.sample_rate)))
+        self.sample_combo.setCurrentIndex(
+            max(0, self.sample_combo.findData(a.sample_rate)))
         self.loudnorm_cb.setChecked(a.loudness_normalize)
         self.dynaudnorm_cb.setChecked(a.dynaudnorm)
 
@@ -393,18 +439,21 @@ class SettingsTab(QWidget):
         row.addWidget(self.folder_edit, 1)
         row.addWidget(browse)
         out_l.addLayout(row)
-        out_l.addWidget(_hint("音質処理後のファイルがここに保存されます。"
-                              "ここから Apple Music にドラッグして取り込みます。"))
+        out_l.addWidget(_hint(
+            "音質処理後のファイルがここに保存されます。"
+            "ここから Apple Music にドラッグして取り込みます。"
+        ))
         layout.addWidget(out_card)
 
         am_card, am_l = _card()
         am_l.addWidget(_subheading("🎵 Apple Music 連携"))
         am_l.addWidget(_hint(
             "Apple Music for Windows には外部から自動追加する公式APIがありません。"
-            "代わりに、処理完了後にエクスプローラでファイルを選択表示 + Apple Music を起動して、"
-            "ドラッグするだけの状態でお膳立てします。"
+            "代わりに、処理完了後にエクスプローラでファイルを選択表示 + "
+            "Apple Music を起動して、ドラッグするだけの状態でお膳立てします。"
         ))
-        self.auto_reveal_cb = QCheckBox("処理完了後にエクスプローラでファイルを選択表示")
+        self.auto_reveal_cb = QCheckBox(
+            "処理完了後にエクスプローラでファイルを選択表示")
         self.auto_reveal_cb.setChecked(settings.auto_reveal_in_explorer())
         self.auto_reveal_cb.toggled.connect(settings.set_auto_reveal_in_explorer)
         am_l.addWidget(self.auto_reveal_cb)
@@ -420,17 +469,20 @@ class SettingsTab(QWidget):
         ff_ok = shutil.which("ffmpeg") is not None
         ff_status = QLabel(
             "● ffmpeg 検出済み" if ff_ok
-            else "● ffmpeg が見つかりません — フォーマット変換と音質処理が使えません"
+            else "● ffmpeg が見つかりません — 音質処理が使えません"
         )
         ff_status.setObjectName("status_ok" if ff_ok else "status_warn")
         ff_l.addWidget(ff_status)
-        ff_l.addWidget(_hint("https://ffmpeg.org/ からダウンロードして PATH を通してください。"))
+        ff_l.addWidget(_hint(
+            "https://ffmpeg.org/ からダウンロードして PATH を通してください。"
+        ))
         layout.addWidget(ff_card)
 
         layout.addStretch(1)
 
     def _pick_folder(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "出力フォルダ", self.folder_edit.text())
+        path = QFileDialog.getExistingDirectory(
+            self, "出力フォルダ", self.folder_edit.text())
         if path:
             self.folder_edit.setText(path)
             settings.set_output_folder(path)
@@ -456,6 +508,96 @@ class LogTab(QWidget):
 
 
 # --------------------------------------------------------------------------- #
+# Sidebar                                                                     #
+# --------------------------------------------------------------------------- #
+
+class Sidebar(QFrame):
+    nav_clicked = pyqtSignal(int)  # index
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("sidebar")
+        self.setFixedWidth(208)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        brand = QLabel("🎵 Apple Music")
+        brand.setObjectName("sidebar_brand")
+        outer.addWidget(brand)
+        sub = QLabel("Library Helper")
+        sub.setObjectName("sidebar_brand_sub")
+        outer.addWidget(sub)
+
+        section = QLabel("MENU")
+        section.setObjectName("sidebar_section")
+        outer.addWidget(section)
+
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+
+        for index, (icon, label) in enumerate([
+            ("📥", "取り込み"),
+            ("🎚️", "音質"),
+            ("⚙️", "設定"),
+            ("📋", "ログ"),
+        ]):
+            btn = QPushButton(f"  {icon}    {label}")
+            btn.setObjectName("nav_btn")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            if index == 0:
+                btn.setChecked(True)
+            self._group.addButton(btn, index)
+            outer.addWidget(btn)
+
+        outer.addStretch(1)
+
+        section2 = QLabel("NOW USING")
+        section2.setObjectName("sidebar_section")
+        outer.addWidget(section2)
+        self.preset_value = QLabel(settings.preset_name())
+        self.preset_value.setObjectName("sidebar_preset")
+        outer.addWidget(self.preset_value)
+        preset_lbl = QLabel("音質プリセット")
+        preset_lbl.setObjectName("sidebar_preset_label")
+        outer.addWidget(preset_lbl)
+
+        self._group.idClicked.connect(self.nav_clicked.emit)
+
+    def select(self, index: int) -> None:
+        btn = self._group.button(index)
+        if btn:
+            btn.setChecked(True)
+
+    def set_current_preset(self, name: str) -> None:
+        self.preset_value.setText(name)
+
+
+# --------------------------------------------------------------------------- #
+# Full-window drop overlay                                                    #
+# --------------------------------------------------------------------------- #
+
+class DropOverlay(QFrame):
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("drop_overlay")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        v = QVBoxLayout(self)
+        v.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title = QLabel("🎵  ここにドロップ")
+        title.setObjectName("drop_overlay_label")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub = QLabel("音楽ファイルを取り込みキューに追加します")
+        sub.setObjectName("drop_overlay_sub")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.addWidget(title)
+        v.addWidget(sub)
+        self.hide()
+
+
+# --------------------------------------------------------------------------- #
 # Main window                                                                 #
 # --------------------------------------------------------------------------- #
 
@@ -463,7 +605,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Apple Music Library Helper")
-        self.resize(880, 640)
+        self.resize(1040, 720)
+        self.setMinimumSize(QSize(880, 560))
         self.setAcceptDrops(True)
 
         from .style import QSS
@@ -471,38 +614,96 @@ class MainWindow(QMainWindow):
 
         self._workers: list[ImportWorker] = []
 
+        # ----- Central layout: sidebar | stacked content ----- #
         central = QWidget()
         central.setObjectName("central")
-        outer = QVBoxLayout(central)
-        outer.setContentsMargins(0, 0, 0, 0)
+        h = QHBoxLayout(central)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
 
-        self.tabs = QTabWidget()
+        self.sidebar = Sidebar()
+        h.addWidget(self.sidebar)
+
+        self.stack = QStackedWidget()
         self.import_tab = ImportTab()
         self.audio_tab = AudioTab()
         self.settings_tab = SettingsTab()
         self.log_tab = LogTab()
-        self.tabs.addTab(self.import_tab, "📥  取り込み")
-        self.tabs.addTab(self.audio_tab, "🎚️  音質")
-        self.tabs.addTab(self.settings_tab, "⚙️  設定")
-        self.tabs.addTab(self.log_tab, "📋  ログ")
-        outer.addWidget(self.tabs)
+        for w in (self.import_tab, self.audio_tab,
+                  self.settings_tab, self.log_tab):
+            self.stack.addWidget(w)
+        h.addWidget(self.stack, 1)
 
         self.setCentralWidget(central)
+        self.sidebar.nav_clicked.connect(self.stack.setCurrentIndex)
 
+        # ----- Status bar ----- #
+        self.status = QStatusBar()
+        self.status.setSizeGripEnabled(False)
+        self.setStatusBar(self.status)
+        self._ffmpeg_lbl = QLabel()
+        self._preset_lbl = QLabel()
+        self._queue_lbl = QLabel()
+        self.status.addWidget(self._ffmpeg_lbl)
+        self.status.addWidget(self._preset_lbl)
+        self.status.addPermanentWidget(self._queue_lbl)
+        self._refresh_status()
+
+        # Refresh status (queue size etc.) on a timer so it stays in sync
+        # without having to plumb signals everywhere.
+        self._status_timer = QTimer(self)
+        self._status_timer.timeout.connect(self._refresh_status)
+        self._status_timer.start(1000)
+
+        # ----- Drop overlay (sits over the central widget) ----- #
+        self.drop_overlay = DropOverlay(self)
+        self.drop_overlay.hide()
+
+        # ----- Wire up ----- #
         self.import_tab.request_import.connect(self._start_import)
+        self.audio_tab.preset_changed.connect(self.sidebar.set_current_preset)
 
-    # ---- drag & drop ----
+    # ----- drag & drop (whole-window) ----------------------------------- #
     def dragEnterEvent(self, e: QDragEnterEvent) -> None:
         if e.mimeData().hasUrls():
             e.acceptProposedAction()
+            self._show_drop_overlay()
+
+    def dragLeaveEvent(self, e: QDragLeaveEvent) -> None:
+        self.drop_overlay.hide()
 
     def dropEvent(self, e: QDropEvent) -> None:
+        self.drop_overlay.hide()
         for u in e.mimeData().urls():
             if u.isLocalFile():
                 self._start_import(u.toLocalFile(), False)
+        self.sidebar.select(0)
+        self.stack.setCurrentIndex(0)
 
-    # ---- worker ----
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._reposition_overlay()
+
+    def _show_drop_overlay(self) -> None:
+        self._reposition_overlay()
+        self.drop_overlay.show()
+        self.drop_overlay.raise_()
+
+    def _reposition_overlay(self) -> None:
+        # Cover the content area (everything to the right of the sidebar,
+        # above the status bar), inset slightly.
+        margin = 16
+        x = self.sidebar.width() + margin
+        y = margin
+        w = self.width() - self.sidebar.width() - margin * 2
+        h = self.height() - self.status.height() - margin * 2
+        self.drop_overlay.setGeometry(x, y, max(0, w), max(0, h))
+
+    # ----- import orchestration ----------------------------------------- #
     def _start_import(self, source: str, is_url: bool) -> None:
+        card = ImportItemCard(source=source, is_url=is_url)
+        self.import_tab.queue.add(card)
+
         worker = ImportWorker(
             source=source,
             is_url=is_url,
@@ -511,19 +712,33 @@ class MainWindow(QMainWindow):
             audio=settings.audio_settings(),
         )
         worker.log.connect(self.log_tab.append)
-        worker.progress.connect(self.import_tab.set_progress)
-        worker.finished_ok.connect(self._on_import_done)
-        worker.failed.connect(lambda m: self.log_tab.append(f"❌ {m}"))
+        worker.status.connect(card.set_status)
+        worker.progress.connect(card.set_progress)
+        worker.finished_ok.connect(
+            lambda summary, path: self._on_import_done(card, summary, path))
+        worker.failed.connect(
+            lambda m: (card.mark_error(m), self.log_tab.append(f"❌ {m}")))
         worker.finished.connect(lambda w=worker: self._workers.remove(w))
         self._workers.append(worker)
         worker.start()
 
-    def _on_import_done(self, message: str, output_path: str) -> None:
-        self.log_tab.append(message)
+    def _on_import_done(self, card: ImportItemCard,
+                        summary: str, output_path: str) -> None:
+        card.mark_success(output_path, summary)
+        self.log_tab.append(f"✓ 完了: {summary}")
         if not output_path:
             return
         if settings.auto_reveal_in_explorer():
             apple_music_helper.reveal_in_explorer(output_path)
         if settings.auto_launch_apple_music():
             apple_music_helper.launch_apple_music()
-        self.import_tab.show_post_import_hint(output_path)
+
+    # ----- status bar refresh ------------------------------------------- #
+    def _refresh_status(self) -> None:
+        ff_ok = shutil.which("ffmpeg") is not None
+        self._ffmpeg_lbl.setText(
+            "● ffmpeg" if ff_ok else "○ ffmpeg 未検出")
+        self._preset_lbl.setText(f"🎚 {settings.preset_name()}")
+        n = len(self._workers)
+        self._queue_lbl.setText(
+            f"処理中 {n} 件" if n else "アイドル")

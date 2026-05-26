@@ -3,17 +3,24 @@
 # Brand colors lifted from Apple Music's web player.
 COLORS = {
     "bg":         "#f5f5f7",   # window background
+    "sidebar":    "#fafafc",   # left navigation rail
     "card":       "#ffffff",   # card / panel surface
     "card_hover": "#fafafc",
     "border":     "#e5e5ea",
+    "border_d":   "#d2d2d7",   # darker for separators
     "text":       "#1d1d1f",
     "text_dim":   "#6e6e73",
+    "text_xdim":  "#86868b",
     "accent":     "#fc3c44",   # Apple Music red/pink
-    "accent_h":   "#e6353d",   # hover
-    "accent_p":   "#cf2e35",   # pressed
+    "accent_h":   "#e6353d",
+    "accent_p":   "#cf2e35",
+    "accent_bg":  "#fff0f1",   # tinted background for selected nav
     "tab_active": "#1d1d1f",
     "input_bg":   "#ffffff",
     "log_bg":     "#ffffff",
+    "ok":         "#1f8a37",
+    "warn":       "#b46100",
+    "info":       "#3478f6",
 }
 
 
@@ -249,7 +256,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0;
 }}
 
-/* ---------- Drop overlay hint ---------- */
+/* ---------- Drop overlay hint (inside cards) ---------- */
 QLabel#drop_target {{
     background: {COLORS['card']};
     border: 2px dashed #c7c7cc;
@@ -257,5 +264,140 @@ QLabel#drop_target {{
     padding: 28px;
     color: {COLORS['text_dim']};
     font-size: 14px;
+}}
+
+/* ---------- Sidebar ---------- */
+QFrame#sidebar {{
+    background: {COLORS['sidebar']};
+    border-right: 1px solid {COLORS['border']};
+}}
+QLabel#sidebar_brand {{
+    font-size: 16px;
+    font-weight: 700;
+    color: {COLORS['text']};
+    padding: 18px 18px 4px 18px;
+}}
+QLabel#sidebar_brand_sub {{
+    font-size: 11px;
+    color: {COLORS['text_xdim']};
+    padding: 0 18px 18px 18px;
+}}
+QPushButton#nav_btn {{
+    background: transparent;
+    color: {COLORS['text']};
+    text-align: left;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    padding: 11px 18px 11px 15px;
+    font-weight: 500;
+    font-size: 14px;
+}}
+QPushButton#nav_btn:hover {{
+    background: rgba(0, 0, 0, 0.04);
+}}
+QPushButton#nav_btn:checked {{
+    background: {COLORS['accent_bg']};
+    color: {COLORS['accent']};
+    border-left: 3px solid {COLORS['accent']};
+    font-weight: 600;
+}}
+QLabel#sidebar_section {{
+    color: {COLORS['text_xdim']};
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 18px 18px 6px 18px;
+}}
+QLabel#sidebar_preset {{
+    color: {COLORS['text']};
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 18px;
+}}
+QLabel#sidebar_preset_label {{
+    color: {COLORS['text_xdim']};
+    font-size: 11px;
+    padding: 0 18px 18px 18px;
+}}
+
+/* ---------- Job / import-item card ---------- */
+QFrame#job_card {{
+    background: {COLORS['card']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 10px;
+}}
+QLabel#job_title {{
+    font-weight: 600;
+    color: {COLORS['text']};
+    font-size: 13px;
+}}
+QLabel#job_status {{
+    color: {COLORS['text_dim']};
+    font-size: 11px;
+}}
+QLabel#job_status_ok {{
+    color: {COLORS['ok']};
+    font-weight: 600;
+    font-size: 11px;
+}}
+QLabel#job_status_err {{
+    color: {COLORS['accent']};
+    font-weight: 600;
+    font-size: 11px;
+}}
+QProgressBar#job_progress {{
+    background: {COLORS['border']};
+    border: none;
+    border-radius: 2px;
+    height: 4px;
+    text-align: center;
+    color: transparent;
+}}
+QProgressBar#job_progress::chunk {{
+    background: {COLORS['accent']};
+    border-radius: 2px;
+}}
+
+/* ---------- Empty-state placeholder in queue ---------- */
+QLabel#empty_state {{
+    color: {COLORS['text_xdim']};
+    font-size: 13px;
+    padding: 40px;
+    qproperty-alignment: AlignCenter;
+}}
+
+/* ---------- Status bar ---------- */
+QStatusBar {{
+    background: {COLORS['sidebar']};
+    border-top: 1px solid {COLORS['border']};
+    color: {COLORS['text_dim']};
+    font-size: 12px;
+}}
+QStatusBar QLabel {{
+    padding: 0 12px;
+    color: {COLORS['text_dim']};
+}}
+QStatusBar::item {{
+    border: none;
+}}
+
+/* ---------- Full-window drop overlay ---------- */
+QFrame#drop_overlay {{
+    background: rgba(252, 60, 68, 0.10);
+    border: 3px dashed {COLORS['accent']};
+    border-radius: 16px;
+}}
+QLabel#drop_overlay_label {{
+    color: {COLORS['accent']};
+    font-size: 28px;
+    font-weight: 700;
+    background: transparent;
+}}
+QLabel#drop_overlay_sub {{
+    color: {COLORS['accent']};
+    font-size: 14px;
+    background: transparent;
 }}
 """
