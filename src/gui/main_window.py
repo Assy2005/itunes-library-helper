@@ -37,8 +37,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import apple_music_helper, converter, downloader, settings
+from .. import apple_music_helper, converter, downloader, ffmpeg_helper, settings
 from ..audio_presets import PRESETS, AudioSettings
+from .ffmpeg_dialog import FFmpegInstallDialog
 from .import_card import ImportItemCard
 
 
@@ -466,17 +467,27 @@ class SettingsTab(QWidget):
 
         ff_card, ff_l = _card()
         ff_l.addWidget(_subheading("🎬 ffmpeg"))
-        ff_ok = shutil.which("ffmpeg") is not None
+        from .. import ffmpeg_helper as _ff
+        ff_ok = _ff.is_installed()
         ff_status = QLabel(
-            "● ffmpeg 検出済み" if ff_ok
-            else "● ffmpeg が見つかりません — 音質処理が使えません"
+            "● ffmpeg / ffprobe 検出済み" if ff_ok
+            else "● ffmpeg または ffprobe が見つかりません — 音質処理が使えません"
         )
         ff_status.setObjectName("status_ok" if ff_ok else "status_warn")
         ff_l.addWidget(ff_status)
-        ff_l.addWidget(_hint(
-            "https://ffmpeg.org/ からダウンロードして PATH を通してください。"
-        ))
+        if not ff_ok:
+            ff_l.addWidget(_hint(
+                "下のボタンからワンクリックでインストールできます (winget使用)。"
+                "うまく行かない場合は ダウンロードページ ボタンで手動DL。"
+            ))
+            install_btn = QPushButton("⚡ ffmpeg を自動インストール…")
+            install_btn.clicked.connect(self._open_ffmpeg_dialog)
+            ff_l.addWidget(install_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(ff_card)
+
+    def _open_ffmpeg_dialog(self) -> None:
+        from .ffmpeg_dialog import FFmpegInstallDialog
+        FFmpegInstallDialog(self).exec()
 
         layout.addStretch(1)
 
@@ -663,6 +674,10 @@ class MainWindow(QMainWindow):
         self.import_tab.request_import.connect(self._start_import)
         self.audio_tab.preset_changed.connect(self.sidebar.set_current_preset)
 
+        # First-launch ffmpeg check: nudge the user to install it before
+        # they hit any errors mid-import.
+        QTimer.singleShot(300, self._check_ffmpeg_on_startup)
+
     # ----- drag & drop (whole-window) ----------------------------------- #
     def dragEnterEvent(self, e: QDragEnterEvent) -> None:
         if e.mimeData().hasUrls():
@@ -699,8 +714,29 @@ class MainWindow(QMainWindow):
         h = self.height() - self.status.height() - margin * 2
         self.drop_overlay.setGeometry(x, y, max(0, w), max(0, h))
 
+    # ----- ffmpeg helpers ----------------------------------------------- #
+    def _check_ffmpeg_on_startup(self) -> None:
+        if not ffmpeg_helper.is_installed():
+            self._show_ffmpeg_dialog(reason="アプリ起動時の検査で見つかりませんでした")
+
+    def _show_ffmpeg_dialog(self, *, reason: str | None = None) -> None:
+        # Avoid stacking multiple copies if errors fire in quick succession.
+        if getattr(self, "_ffmpeg_dialog_open", False):
+            return
+        self._ffmpeg_dialog_open = True
+        dlg = FFmpegInstallDialog(self, reason=reason)
+        dlg.exec()
+        self._ffmpeg_dialog_open = False
+
     # ----- import orchestration ----------------------------------------- #
     def _start_import(self, source: str, is_url: bool) -> None:
+        # Pre-flight: if ffmpeg isn't available, don't even start the
+        # download — yt-dlp would crash partway through postprocessing.
+        if not ffmpeg_helper.is_installed():
+            self._show_ffmpeg_dialog(
+                reason="取り込み開始時のチェックで見つかりませんでした")
+            return
+
         card = ImportItemCard(source=source, is_url=is_url)
         self.import_tab.queue.add(card)
 
@@ -717,10 +753,16 @@ class MainWindow(QMainWindow):
         worker.finished_ok.connect(
             lambda summary, path: self._on_import_done(card, summary, path))
         worker.failed.connect(
-            lambda m: (card.mark_error(m), self.log_tab.append(f"❌ {m}")))
+            lambda m: self._on_import_failed(card, m))
         worker.finished.connect(lambda w=worker: self._workers.remove(w))
         self._workers.append(worker)
         worker.start()
+
+    def _on_import_failed(self, card: ImportItemCard, message: str) -> None:
+        card.mark_error(message)
+        self.log_tab.append(f"❌ {message}")
+        if ffmpeg_helper.looks_like_missing_ffmpeg(message):
+            self._show_ffmpeg_dialog(reason=message)
 
     def _on_import_done(self, card: ImportItemCard,
                         summary: str, output_path: str) -> None:
