@@ -24,7 +24,7 @@ hidden += [
 
 
 a = Analysis(
-    ["src/main.py"],
+    ["run.py"],
     pathex=[],
     binaries=[],
     datas=[],
