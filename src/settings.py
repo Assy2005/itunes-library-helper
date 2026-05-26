@@ -20,11 +20,28 @@ def _qs() -> QSettings:
 # ---- output destinations ----
 
 def add_to_itunes() -> bool:
-    return _qs().value("output/add_to_itunes", True, type=bool)
+    # Default OFF in v0.3+: most users now use Apple Music, not iTunes.
+    return _qs().value("output/add_to_itunes", False, type=bool)
 
 
 def set_add_to_itunes(v: bool) -> None:
     _qs().setValue("output/add_to_itunes", v)
+
+
+def auto_reveal_in_explorer() -> bool:
+    return _qs().value("output/auto_reveal", True, type=bool)
+
+
+def set_auto_reveal_in_explorer(v: bool) -> None:
+    _qs().setValue("output/auto_reveal", v)
+
+
+def auto_launch_apple_music() -> bool:
+    return _qs().value("output/auto_launch_apple_music", True, type=bool)
+
+
+def set_auto_launch_apple_music(v: bool) -> None:
+    _qs().setValue("output/auto_launch_apple_music", v)
 
 
 def output_folder() -> str:

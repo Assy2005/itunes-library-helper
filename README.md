@@ -66,9 +66,9 @@
 <sub>FFTデノイズ、EBU R128 ラウドネス、<br/>ダイナミクス補正、アップサンプリングを<br/>自由に組み合わせ</sub>
 </td>
 <td width="33%" align="center" valign="top">
-<h3>🍎</h3>
-<b>iTunes 連携（オプション）</b><br/>
-<sub>あれば自動でライブラリ追加、<br/>なければ指定フォルダに高音質出力。<br/>iTunes 無しでも使える</sub>
+<h3>🎵</h3>
+<b>Apple Music 取り込み補助</b><br/>
+<sub>処理完了後、エクスプローラで<br/>ファイル選択 + Apple Music起動を<br/>自動実行 → ドラッグするだけ</sub>
 </td>
 </tr>
 </table>
@@ -131,12 +131,15 @@ flowchart LR
 |------|------|
 | **OS** | Windows 10 / 11 |
 | **Python** | 3.10 以上 |
-| **iTunes** | （オプション）あれば自動でライブラリ追加。無くてもファイル出力モードで動作 |
+| **Apple Music for Windows** | （推奨）処理完了後に自動起動 → ドラッグで取り込み |
+| **iTunes** | （旧版オプション）あれば自動でライブラリ追加 |
 | **ffmpeg** | 音質処理 / フォーマット変換を使う場合は必須 |
 
-> 💡 **iTunes が無くても動きます。** その場合は音質処理済みファイルが指定フォルダに保存されます。
-> 新しい **Apple Music for Windows** 単体にはスクリプタブルAPIが無いため自動取り込みは不可ですが、
-> 出力フォルダから手動で取り込めば実質同等です。
+> 💡 **新しい Apple Music for Windows には公式の自動追加APIが存在しません** (Apple確認済み)。
+> このアプリは **「処理完了 → エクスプローラで対象ファイルを選択表示 + Apple Music を起動」**
+> を自動化することで、最後の "ドラッグするだけ" の状態をお膳立てします。
+>
+> 旧 **iTunes** をお使いの方は COM API 経由で**完全自動**でライブラリ追加できます (設定タブでON)。
 
 ### インストール & 起動
 
@@ -205,6 +208,8 @@ itunes-library-helper/
 - [x] **iTunes 任意化 — ファイル出力モード**
 - [x] **Apple Music 風 GUI** (タブ + カードUI + ピンクアクセント)
 - [x] **設定の永続化** (QSettings)
+- [x] **Apple Music 取り込み補助** (エクスプローラ自動表示 + Apple Music 起動)
+- [ ] OLE Drag&Drop シミュレーションで Apple Music 完全自動化 (R&D)
 - [ ] yt-dlp / ffmpeg 進捗の詳細表示
 - [ ] メタデータ編集ダイアログ
 - [ ] アートワーク自動取得 (iTunes Search API)
