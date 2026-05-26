@@ -372,8 +372,20 @@ class AudioTab(QWidget):
             "他プリセット時は現在の値を表示。"
         ))
 
+        # Wrap the EQ visualizer in a fixed-height container. We previously
+        # tried setFixedHeight + sizeHint overrides on the widget itself,
+        # but the parent QVBoxLayout still allocated zero vertical space
+        # in some configurations, causing the form rows below to render
+        # on top of the EQ paint. A QFrame container with a hard fixed
+        # height is consistently respected.
+        eq_box = QFrame()
+        eq_box.setFixedHeight(EQVisualizer.HEIGHT)
+        eq_box_l = QVBoxLayout(eq_box)
+        eq_box_l.setContentsMargins(0, 0, 0, 0)
+        eq_box_l.setSpacing(0)
         self.eq = EQVisualizer()
-        custom_l.addWidget(self.eq)
+        eq_box_l.addWidget(self.eq)
+        custom_l.addWidget(eq_box)
 
         self.bitrate_combo = QComboBox()
         for kbps in (128, 192, 256, 320):
