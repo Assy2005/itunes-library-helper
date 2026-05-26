@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 
 from PyQt6.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
@@ -26,8 +27,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QMainWindow,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -107,31 +108,79 @@ class ImportWorker(QThread):
         self.out_dir = out_dir
         self.audio = audio
 
+    def _on_ytdlp_progress(self, d: dict) -> None:
+        """Translate yt-dlp's progress dict into card-friendly updates."""
+        status = d.get("status")
+        if status == "downloading":
+            downloaded = d.get("downloaded_bytes") or 0
+            total = (d.get("total_bytes")
+                     or d.get("total_bytes_estimate")
+                     or 0)
+            speed = d.get("speed") or 0       # bytes/sec
+            eta = d.get("eta") or 0           # seconds
+
+            if total > 0:
+                pct = int(downloaded * 100 / total)
+                # Map 0–100% of download to 5–45% of the overall pipeline.
+                self.progress.emit(5 + int(pct * 0.40))
+                parts = [f"⬇️  ダウンロード中  {pct}%"]
+            else:
+                mb = downloaded / (1024 * 1024)
+                parts = [f"⬇️  ダウンロード中  {mb:.1f} MB"]
+
+            if speed:
+                parts.append(f"{speed / (1024 * 1024):.1f} MB/s")
+            if eta:
+                parts.append(f"残り {int(eta)} 秒")
+            self.status.emit("  ・  ".join(parts))
+
+        elif status == "finished":
+            self.progress.emit(45)
+            self.status.emit("✓  ダウンロード完了、後処理を待機中…")
+            self.log.emit("[ダウンロード完了] 後処理 (音声抽出) に入ります")
+
+        elif status == "error":
+            self.log.emit("[ダウンロードエラー] yt-dlp が失敗しました")
+
     def run(self) -> None:
         try:
             self.progress.emit(5)
 
             if self.is_url:
-                self.status.emit("⬇️  ダウンロード中…")
-                self.log.emit(f"⬇️  ダウンロード開始: {self.source}")
-                result = downloader.download(self.source, self.work_dir)
+                self.status.emit("⬇️  ダウンロード準備中…")
+                self.log.emit(f"⬇️  取り込み開始: {self.source}")
+                result = downloader.download(
+                    self.source, self.work_dir,
+                    log_cb=lambda m: self.log.emit(m),
+                    progress_cb=self._on_ytdlp_progress,
+                )
                 path = result.path
-                self.log.emit(f"   → {os.path.basename(path)}")
+                self.log.emit(f"⬇️  保存先: {path}")
             else:
                 path = self.source
+                self.log.emit(f"📁 ローカルファイル: {path}")
 
-            self.progress.emit(45)
+            self.progress.emit(50)
 
             preset = settings.preset_name()
             self.status.emit(
                 f"🎚️  音質処理 ({preset} ・ {self.audio.bitrate_kbps}kbps)"
             )
             self.log.emit(
-                f"🎚️  音質処理中 (preset={preset}, "
-                f"{self.audio.bitrate_kbps}kbps {self.audio.output_format})"
+                f"🎚️  ffmpeg 開始 (preset={preset}, "
+                f"{self.audio.bitrate_kbps}kbps {self.audio.output_format}"
+                + (f", bass+{self.audio.bass_gain_db}dB"
+                   if self.audio.bass_gain_db else "")
+                + (f", treble+{self.audio.treble_gain_db}dB"
+                   if self.audio.treble_gain_db else "")
+                + (f", denoise={self.audio.denoise_strength}"
+                   if self.audio.denoise_strength else "")
+                + (", loudnorm" if self.audio.loudness_normalize else "")
+                + (", dynaudnorm" if self.audio.dynaudnorm else "")
+                + ")"
             )
             path = converter.process(path, self.out_dir, self.audio)
-            self.log.emit(f"   → {os.path.basename(path)}")
+            self.log.emit(f"🎚️  ffmpeg 完了 → {path}")
 
             self.progress.emit(95)
 
@@ -504,18 +553,53 @@ class SettingsTab(QWidget):
 # --------------------------------------------------------------------------- #
 
 class LogTab(QWidget):
+    """Console-style log: monospace, timestamps, auto-scroll, clear button."""
+
     def __init__(self) -> None:
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(12)
-        layout.addWidget(_heading("ログ"))
-        self.list = QListWidget()
-        layout.addWidget(self.list, 1)
+
+        header = QHBoxLayout()
+        header.addWidget(_heading("ログ"))
+        header.addStretch(1)
+        clear_btn = QPushButton("🗑 クリア")
+        clear_btn.setObjectName("secondary")
+        clear_btn.clicked.connect(lambda: self.text.clear())
+        header.addWidget(clear_btn)
+        layout.addLayout(header)
+
+        layout.addWidget(_hint(
+            "ダウンロードと音質処理の詳細出力をリアルタイム表示します。"
+            "yt-dlp / ffmpeg のメッセージもここに流れます。"
+        ))
+
+        self.text = QPlainTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setPlaceholderText("まだログはありません。")
+        self.text.setStyleSheet(
+            "QPlainTextEdit {"
+            "  background: #1d1d1f;"
+            "  color: #f5f5f7;"
+            "  font-family: Consolas, 'SF Mono', Menlo, monospace;"
+            "  font-size: 12px;"
+            "  border: 1px solid #e5e5ea;"
+            "  border-radius: 10px;"
+            "  padding: 10px;"
+            "  selection-background-color: #fc3c44;"
+            "  selection-color: white;"
+            "}"
+        )
+        # Cap the in-memory buffer so a runaway log can't OOM the app.
+        self.text.setMaximumBlockCount(5000)
+        layout.addWidget(self.text, 1)
 
     def append(self, msg: str) -> None:
-        self.list.addItem(msg)
-        self.list.scrollToBottom()
+        ts = time.strftime("%H:%M:%S")
+        self.text.appendPlainText(f"[{ts}]  {msg}")
+        sb = self.text.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
 
 # --------------------------------------------------------------------------- #
