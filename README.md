@@ -22,6 +22,18 @@
 
 ---
 
+## 📥 ダウンロード
+
+<div align="center">
+
+### 👉 **[最新版 .exe をダウンロード](https://github.com/Assy2005/itunes-library-helper/releases/latest)**
+
+<sub>Windows 10 / 11 ・ Python インストール不要 ・ ダブルクリックで起動</sub>
+
+</div>
+
+---
+
 ## ✨ 一目でわかる、できること
 
 <table>
