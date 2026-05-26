@@ -577,6 +577,19 @@ class SettingsTab(QWidget):
         nf_l.addWidget(self.toast_cb)
         layout.addWidget(nf_card)
 
+        ui_card, ui_l = _card()
+        ui_l.addWidget(_subheading("🪟 UI 状態"))
+        ui_l.addWidget(_hint(
+            "ウィンドウサイズ・位置・最後に開いていたタブの記憶をクリアします。"
+            "画面のレイアウトが崩れている場合は試してみてください。"
+            "音質プリセットや出力フォルダなどの設定は維持されます。"
+        ))
+        reset_btn = QPushButton("🔄 UI 状態をリセット")
+        reset_btn.setObjectName("secondary")
+        reset_btn.clicked.connect(self._reset_ui_state)
+        ui_l.addWidget(reset_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(ui_card)
+
         ff_card, ff_l = _card()
         ff_l.addWidget(_subheading("🎬 ffmpeg"))
         from .. import ffmpeg_helper as _ff
@@ -600,6 +613,18 @@ class SettingsTab(QWidget):
     def _open_ffmpeg_dialog(self) -> None:
         from .ffmpeg_dialog import FFmpegInstallDialog
         FFmpegInstallDialog(self).exec()
+
+    def _reset_ui_state(self) -> None:
+        from PyQt6.QtCore import QSettings
+        from PyQt6.QtWidgets import QMessageBox
+        s = QSettings("itunes-library-helper", "itunes-library-helper")
+        for key in ("ui/window_geometry", "ui/last_tab"):
+            s.remove(key)
+        QMessageBox.information(
+            self,
+            "UI 状態をリセットしました",
+            "ウィンドウ状態をクリアしました。次回起動時にデフォルトサイズで開きます。",
+        )
 
         layout.addStretch(1)
 
@@ -786,10 +811,16 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(QSS + checkbox_check_extra_qss(resources_dir))
 
         # Restore previous window geometry (size, position, maximized state)
-        # if we have it stashed from a previous session.
+        # if we have it stashed from a previous session. Defensive: if the
+        # restored size ends up below the minimum (e.g. a previous version
+        # saved a broken size), kick it back up to the default. This avoids
+        # the layout being squeezed into an impossible shape and laying
+        # widgets on top of each other.
         geom = settings.window_geometry()
         if geom:
             self.restoreGeometry(geom)
+            if (self.width() < 880 or self.height() < 560):
+                self.resize(1040, 720)
 
         self._workers: list[ImportWorker] = []
 
