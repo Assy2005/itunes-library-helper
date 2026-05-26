@@ -41,7 +41,7 @@
 <td width="33%" align="center" valign="top">
 <h3>🌐</h3>
 <b>URLから直接追加</b><br/>
-<sub>YouTube等の動画URL、<br/>または <code>.mp3</code> / <code>.wav</code> の直リンクを<br/>貼るだけでライブラリ入り</sub>
+<sub>YouTube等の動画URL、<br/>または <code>.mp3</code> / <code>.wav</code> の直リンクを<br/>貼るだけで取り込み</sub>
 </td>
 <td width="33%" align="center" valign="top">
 <h3>📁</h3>
@@ -49,29 +49,42 @@
 <sub>ローカルの音楽ファイルを<br/>まとめてウィンドウに放り込むだけ。<br/>複数ファイル同時OK</sub>
 </td>
 <td width="33%" align="center" valign="top">
-<h3>🔄</h3>
-<b>自動フォーマット変換</b><br/>
-<sub>FLAC など iTunes 非対応形式は<br/>裏で <code>ffmpeg</code> が AAC/MP3 に<br/>自動変換</sub>
+<h3>🎚️</h3>
+<b>音質プリセット & カスタム</b><br/>
+<sub>原音忠実 / ポップ / EDM・重低音 /<br/>ボーカル強調 / クリア・高解像度<br/>+ 全項目カスタム</sub>
 </td>
 </tr>
 <tr>
 <td width="33%" align="center" valign="top">
-<h3>🏷️</h3>
-<b>メタデータ補完・編集</b><br/>
-<sub>アーティスト・アルバム・<br/>アートワークを自動取得 / GUI編集</sub>
+<h3>🔊</h3>
+<b>重低音強化 & 高音強化</b><br/>
+<sub>ffmpegフィルターで<br/>bass +12dB / treble +6dB まで<br/>段階的にブースト</sub>
 </td>
 <td width="33%" align="center" valign="top">
-<h3>📜</h3>
-<b>プレイリスト一括作成</b><br/>
-<sub>URLリストやフォルダから<br/>1クリックでプレイリスト化</sub>
+<h3>🎛️</h3>
+<b>ノイズ除去 & 音量正規化</b><br/>
+<sub>FFTデノイズ、EBU R128 ラウドネス、<br/>ダイナミクス補正、アップサンプリングを<br/>自由に組み合わせ</sub>
 </td>
 <td width="33%" align="center" valign="top">
-<h3>⚡</h3>
-<b>非同期処理</b><br/>
-<sub>ダウンロード中も UI は固まらない。<br/>QThread でバックグラウンド実行</sub>
+<h3>🍎</h3>
+<b>iTunes 連携（オプション）</b><br/>
+<sub>あれば自動でライブラリ追加、<br/>なければ指定フォルダに高音質出力。<br/>iTunes 無しでも使える</sub>
 </td>
 </tr>
 </table>
+
+---
+
+## 🎚️ 音質プリセット
+
+| プリセット | ビットレート | 主な処理 | 向いている音楽 |
+|---|---|---|---|
+| **原音忠実** | 320 kbps | 処理なし | クラシック・ジャズ・ハイレゾ |
+| **ポップ** | 256 kbps | 低音+3dB / 高音+2dB / ダイナミクス補正 | J-POP・洋楽ポップス |
+| **EDM・重低音** | 320 kbps | 低音+8dB / ラウドネス正規化 | EDM・HipHop・ダンス |
+| **ボーカル強調** | 256 kbps | 高音+4dB / ノイズ除去 / ラウドネス正規化 | アコースティック・歌モノ |
+| **クリア・高解像度** | 320 kbps | 軽いノイズ除去 / 48kHz アップサンプリング | 全般・配信音源の底上げ |
+| **カスタム** | 128–320 kbps | 全パラメータ手動調整 | こだわり派 |
 
 ---
 
@@ -118,11 +131,12 @@ flowchart LR
 |------|------|
 | **OS** | Windows 10 / 11 |
 | **Python** | 3.10 以上 |
-| **iTunes** | Microsoft Store 版 もしくは デスクトップ版（必須） |
-| **ffmpeg** | フォーマット変換を使う場合のみ |
+| **iTunes** | （オプション）あれば自動でライブラリ追加。無くてもファイル出力モードで動作 |
+| **ffmpeg** | 音質処理 / フォーマット変換を使う場合は必須 |
 
-> ⚠️ 新しい **Apple Music for Windows** 単体ではまだスクリプタブルAPIが提供されていないため、
-> 現状は従来の **iTunes** が必要です。
+> 💡 **iTunes が無くても動きます。** その場合は音質処理済みファイルが指定フォルダに保存されます。
+> 新しい **Apple Music for Windows** 単体にはスクリプタブルAPIが無いため自動取り込みは不可ですが、
+> 出力フォルダから手動で取り込めば実質同等です。
 
 ### インストール & 起動
 
@@ -186,12 +200,17 @@ itunes-library-helper/
 - [x] プロジェクトスケルトン
 - [x] URL / ファイル取り込みの基本フロー
 - [x] 非同期 (QThread) 処理
+- [x] PyInstaller でのワンファイル配布
+- [x] **音質プリセット 5種 + カスタム** (bass / treble / denoise / loudnorm / dynaudnorm / resample)
+- [x] **iTunes 任意化 — ファイル出力モード**
+- [x] **Apple Music 風 GUI** (タブ + カードUI + ピンクアクセント)
+- [x] **設定の永続化** (QSettings)
+- [ ] yt-dlp / ffmpeg 進捗の詳細表示
 - [ ] メタデータ編集ダイアログ
 - [ ] アートワーク自動取得 (iTunes Search API)
 - [ ] プレイリスト一括作成 UI
-- [ ] yt-dlp / ffmpeg 進捗バー
-- [ ] 設定画面 (出力フォルダ / 音質 / デフォルト変換先)
-- [ ] PyInstaller でのワンファイル配布
+- [ ] ダーク/ライト切り替え
+- [ ] アプリアイコン
 
 ---
 
