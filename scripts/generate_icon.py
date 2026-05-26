@@ -71,11 +71,26 @@ def render_square(size: int) -> Image.Image:
     return img
 
 
+def render_checkmark(size: int) -> Image.Image:
+    """White checkmark on transparent background for QSS ::indicator:checked."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    # Two strokes drawn as polygons so we get clean ends regardless of font.
+    w = max(2, int(size * 0.18))
+    # Coordinates roughly: (3, 8) → (7, 12) → (13, 4) on a 16-square.
+    p1 = (size * 3 / 16, size * 8 / 16)
+    p2 = (size * 7 / 16, size * 12 / 16)
+    p3 = (size * 13 / 16, size * 4 / 16)
+    draw.line([p1, p2, p3], fill=WHITE, width=w, joint="curve")
+    return img
+
+
 def main() -> None:
     out_dir = Path(__file__).resolve().parent.parent / "resources"
     out_dir.mkdir(exist_ok=True)
     ico_path = out_dir / "icon.ico"
     png_path = out_dir / "icon.png"
+    check_path = out_dir / "check.png"
 
     # Multiple sizes so Windows can pick crisp ones for taskbar, dialog,
     # context menu, etc.
@@ -88,7 +103,9 @@ def main() -> None:
         sizes=[(s, s) for s in sizes],
         append_images=images[:-1],
     )
-    print(f"wrote {ico_path} and {png_path}")
+    # Checkmark for the QCheckBox indicator (rendered at 2x for hi-DPI).
+    render_checkmark(36).save(check_path)
+    print(f"wrote {ico_path}, {png_path}, {check_path}")
 
 
 if __name__ == "__main__":

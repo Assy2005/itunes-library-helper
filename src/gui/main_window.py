@@ -761,16 +761,17 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(QSize(880, 560))
         self.setAcceptDrops(True)
 
-        # Look up the bundled icon. PyInstaller onefile extracts datas
-        # under sys._MEIPASS; running from source uses the repo root.
+        # Resources base: PyInstaller onefile extracts under sys._MEIPASS;
+        # development uses the repo root.
         base = getattr(sys, "_MEIPASS", os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        icon_path = os.path.join(base, "resources", "icon.ico")
+        resources_dir = os.path.join(base, "resources")
+        icon_path = os.path.join(resources_dir, "icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        from .style import QSS
-        self.setStyleSheet(QSS)
+        from .style import QSS, checkbox_check_extra_qss
+        self.setStyleSheet(QSS + checkbox_check_extra_qss(resources_dir))
 
         # Restore previous window geometry (size, position, maximized state)
         # if we have it stashed from a previous session.

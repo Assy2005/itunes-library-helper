@@ -48,8 +48,11 @@ class EQVisualizer(QWidget):
         super().__init__()
         self._bass_db = 0
         self._treble_db = 0
+        # setFixedHeight is critical: with only a sizeHint the layout
+        # was happily giving the widget extra vertical space and the
+        # painted EQ overlapped the slider rows below.
+        self.setFixedHeight(140)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(140)
 
     def set_values(self, bass_db: int, treble_db: int) -> None:
         self._bass_db = bass_db
@@ -123,24 +126,29 @@ class EQVisualizer(QWidget):
         for i in range(len(points) - 1):
             painter.drawLine(points[i], points[i + 1])
 
-        # Labels.
+        # Y axis labels (left gutter).
         painter.setPen(QColor("#86868b"))
         font = QFont(self.font())
         font.setPointSize(8)
         painter.setFont(font)
-        painter.drawText(4, margin_y + 10, "+dB")
-        painter.drawText(4, h - 4, "−dB")
-        painter.drawText(margin_x, h - 4, "50Hz")
-        painter.drawText(margin_x + inner_w // 2 - 14, h - 4, "1kHz")
-        painter.drawText(margin_x + inner_w - 36, h - 4, "16kHz")
         painter.drawText(4, center_y + 4, "0dB")
 
-        # Numeric readout in the corner.
+        # X axis labels (below the plot area, in the bottom margin).
+        x_label_y = h - 4
+        painter.drawText(margin_x - 12, x_label_y, "50Hz")
+        painter.drawText(margin_x + inner_w // 2 - 14, x_label_y, "1kHz")
+        painter.drawText(margin_x + inner_w - 36, x_label_y, "16kHz")
+
+        # Numeric readout, top-right corner so it doesn't fight the curve.
         readout = (f"Bass +{self._bass_db}dB   "
                    f"Treble +{self._treble_db}dB"
                    if (self._bass_db or self._treble_db)
                    else "フラット")
         painter.setPen(QColor("#6e6e73"))
         font.setPointSize(9)
+        font.setBold(True)
         painter.setFont(font)
-        painter.drawText(margin_x, margin_y + 4, readout)
+        # Right-align by measuring text width.
+        metrics = painter.fontMetrics()
+        text_w = metrics.horizontalAdvance(readout)
+        painter.drawText(w - margin_x - text_w, margin_y + 4, readout)

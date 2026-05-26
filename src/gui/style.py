@@ -1,5 +1,8 @@
 """Apple Music-inspired Qt Style Sheet (light grey base, pink accent)."""
 
+from pathlib import Path
+
+
 # Brand colors lifted from Apple Music's web player.
 COLORS = {
     "bg":         "#f5f5f7",   # window background
@@ -22,6 +25,25 @@ COLORS = {
     "warn":       "#b46100",
     "info":       "#3478f6",
 }
+
+
+def checkbox_check_extra_qss(resources_dir: str | None) -> str:
+    """Extra QSS snippet that paints a white checkmark on checked indicators.
+
+    Kept separate from the main QSS string because the asset path is
+    only known at runtime (different in dev vs PyInstaller onefile).
+    """
+    if not resources_dir:
+        return ""
+    p = Path(resources_dir) / "check.png"
+    if not p.exists():
+        return ""
+    # QSS needs forward slashes even on Windows.
+    return f"""
+QCheckBox::indicator:checked {{
+    image: url({p.as_posix()});
+}}
+"""
 
 
 QSS = f"""
@@ -204,7 +226,6 @@ QCheckBox::indicator:hover {{
 QCheckBox::indicator:checked {{
     background: {COLORS['accent']};
     border: 1px solid {COLORS['accent']};
-    image: none;
 }}
 
 /* ---------- Progress bar ---------- */
