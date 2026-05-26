@@ -1,0 +1,17 @@
+# GUI
+PyQt6>=6.6.0
+
+# iTunes COM API (Windows only)
+pywin32>=306; sys_platform == "win32"
+
+# Video / audio URL download
+yt-dlp>=2024.1.0
+
+# Audio metadata read/write (ID3, FLAC, MP4, etc.)
+mutagen>=1.47.0
+
+# HTTP requests (direct-link downloads, artwork fetching)
+requests>=2.31.0
+
+# Optional: nicer ffmpeg wrapper (ffmpeg binary itself must be installed separately)
+ffmpeg-python>=0.2.0
