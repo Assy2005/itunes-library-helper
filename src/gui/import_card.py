@@ -149,6 +149,13 @@ class ImportItemCard(QFrame):
     def _show_success_actions(self) -> None:
         self._clear_actions()
         if self._output_path:
+            edit = QPushButton("✏️")
+            edit.setObjectName("secondary")
+            edit.setToolTip("メタデータ / アートワーク編集")
+            edit.setFixedWidth(40)
+            edit.clicked.connect(self._open_metadata_dialog)
+            self._actions.addWidget(edit)
+
             reveal = QPushButton("📂")
             reveal.setObjectName("secondary")
             reveal.setToolTip("エクスプローラで開く")
@@ -159,6 +166,13 @@ class ImportItemCard(QFrame):
             )
             self._actions.addWidget(reveal)
         self._add_dismiss()
+
+    def _open_metadata_dialog(self) -> None:
+        if not self._output_path:
+            return
+        # Imported lazily to avoid a circular import at module load.
+        from .metadata_dialog import MetadataDialog
+        MetadataDialog(self._output_path, self).exec()
 
     def _show_dismiss_only(self) -> None:
         self._clear_actions()

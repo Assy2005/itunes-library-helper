@@ -44,10 +44,11 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import (
-    apple_music_helper, converter, downloader, ffmpeg_helper, settings,
-    win_chrome, win_notify,
+    apple_music_helper, artwork, converter, downloader, ffmpeg_helper,
+    metadata, settings, win_chrome, win_notify,
 )
 from ..audio_presets import PRESETS, AudioSettings
+from .eq_visualizer import EQVisualizer
 from .ffmpeg_dialog import FFmpegInstallDialog
 from .header_bar import HeaderBar
 from .import_card import ImportItemCard
@@ -124,6 +125,8 @@ class ImportWorker(QThread):
     def run(self) -> None:
         try:
             self.progress.emit(5)
+            dl_title: str | None = None
+            dl_artist: str | None = None
             if self.is_url:
                 self.status.emit("⬇️ ダウンロード準備中…")
                 self.log.emit(f"⬇️ 取り込み開始: {self.source}")
@@ -133,6 +136,8 @@ class ImportWorker(QThread):
                     progress_cb=self._on_ytdlp_progress,
                 )
                 path = result.path
+                dl_title = result.title
+                dl_artist = result.artist
                 self.log.emit(f"⬇️ 保存先: {path}")
             else:
                 path = self.source
@@ -157,6 +162,31 @@ class ImportWorker(QThread):
             )
             path = converter.process(path, self.out_dir, self.audio)
             self.log.emit(f"🎚 ffmpeg 完了 → {path}")
+
+            # ---- Metadata enrichment (artwork + tags) ---- #
+            if settings.auto_fetch_artwork():
+                self.status.emit("🎨 アートワークを検索中…")
+                query = " ".join(filter(None, (dl_artist, dl_title))) \
+                    or dl_title or os.path.splitext(os.path.basename(path))[0]
+                self.log.emit(f"🎨 iTunes Search: \"{query}\"")
+                try:
+                    found = artwork.best_match(query)
+                    if found:
+                        hit, img = found
+                        meta = metadata.TrackMetadata(
+                            title=hit.title or dl_title,
+                            artist=hit.artist or dl_artist,
+                            album=hit.album or None,
+                            artwork_bytes=img,
+                        )
+                        metadata.apply(path, meta)
+                        self.log.emit(
+                            f"🎨 アートワーク埋め込み: "
+                            f"{hit.artist} — {hit.album}")
+                    else:
+                        self.log.emit("🎨 一致するアートワークが見つかりませんでした")
+                except Exception as e:
+                    self.log.emit(f"🎨 アートワーク取得に失敗: {e}")
 
             self.progress.emit(95)
             self.status.emit("✓ 完了")
@@ -339,6 +369,15 @@ class AudioTab(QWidget):
         pl.addWidget(self.preset_desc)
         root.addWidget(preset_box)
 
+        # ---- EQ visualization ---- #
+        eq_box = QGroupBox("📊  EQ プレビュー")
+        eqv = QVBoxLayout(eq_box)
+        eqv.setContentsMargins(16, 18, 16, 14)
+        eqv.setSpacing(8)
+        self.eq = EQVisualizer()
+        eqv.addWidget(self.eq)
+        root.addWidget(eq_box)
+
         # ---- Custom details (QFormLayout) ---- #
         details_box = QGroupBox("🎚  詳細 (カスタム時のみ編集可)")
         form = QFormLayout(details_box)
@@ -359,9 +398,11 @@ class AudioTab(QWidget):
         form.addRow("出力フォーマット", self.format_combo)
 
         self.bass_slider, bass_wrap = self._make_slider(0, 12, "dB")
+        self.bass_slider.valueChanged.connect(self._refresh_eq)
         form.addRow("重低音強化", bass_wrap)
 
         self.treble_slider, treble_wrap = self._make_slider(0, 6, "dB")
+        self.treble_slider.valueChanged.connect(self._refresh_eq)
         form.addRow("高音強化", treble_wrap)
 
         self.denoise_slider, denoise_wrap = self._make_slider(0, 3, "段階")
@@ -446,6 +487,10 @@ class AudioTab(QWidget):
             max(0, self.sample_combo.findData(a.sample_rate)))
         self.loudnorm_cb.setChecked(a.loudness_normalize)
         self.dynaudnorm_cb.setChecked(a.dynaudnorm)
+        self._refresh_eq()
+
+    def _refresh_eq(self) -> None:
+        self.eq.set_values(self.bass_slider.value(), self.treble_slider.value())
 
     def _save_custom(self) -> None:
         a = AudioSettings(
@@ -509,6 +554,22 @@ class SettingsTab(QWidget):
         self.auto_launch_cb.toggled.connect(settings.set_auto_launch_apple_music)
         am_l.addWidget(self.auto_launch_cb)
         root.addWidget(am_box)
+
+        # Metadata enrichment
+        md_box = QGroupBox("🎨  メタデータ")
+        md_l = QVBoxLayout(md_box)
+        md_l.setContentsMargins(16, 18, 16, 14)
+        md_l.setSpacing(8)
+        md_l.addWidget(_hint(
+            "取り込み完了時に iTunes Search API でアートワークを検索し、"
+            "ファイルに自動で埋め込みます。"
+            "検索結果が違う場合はカードの ✏️ ボタンから手動で編集できます。"
+        ))
+        self.auto_artwork_cb = QCheckBox("取り込み完了時にアートワークを自動取得")
+        self.auto_artwork_cb.setChecked(settings.auto_fetch_artwork())
+        self.auto_artwork_cb.toggled.connect(settings.set_auto_fetch_artwork)
+        md_l.addWidget(self.auto_artwork_cb)
+        root.addWidget(md_box)
 
         # Notifications
         nf_box = QGroupBox("🔔  通知")

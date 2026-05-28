@@ -56,6 +56,16 @@ def set_show_toast_on_done(v: bool) -> None:
     _qs().setValue("notify/toast", v)
 
 
+# ---- metadata enrichment ----
+
+def auto_fetch_artwork() -> bool:
+    return _qs().value("metadata/auto_artwork", True, type=bool)
+
+
+def set_auto_fetch_artwork(v: bool) -> None:
+    _qs().setValue("metadata/auto_artwork", v)
+
+
 # ---- window state ----
 
 def window_geometry() -> bytes | None:
