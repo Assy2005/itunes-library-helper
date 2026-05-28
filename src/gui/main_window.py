@@ -21,7 +21,6 @@ import time
 from PyQt6.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QIcon
 from PyQt6.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -36,20 +35,21 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QStackedWidget,
-    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
 from .. import (
     apple_music_helper, converter, downloader, ffmpeg_helper, settings,
-    win_notify,
+    win_chrome, win_notify,
 )
 from ..audio_presets import PRESETS, AudioSettings
 from .eq_visualizer import EQVisualizer
 from .ffmpeg_dialog import FFmpegInstallDialog
+from .header_bar import HeaderBar
 from .import_card import ImportItemCard
 from .preset_card import PresetCard
+from .sidebar import Sidebar
 from .toast import ToastManager
 
 
@@ -694,76 +694,6 @@ class LogTab(QWidget):
 # Sidebar                                                                     #
 # --------------------------------------------------------------------------- #
 
-class Sidebar(QFrame):
-    nav_clicked = pyqtSignal(int)  # index
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.setObjectName("sidebar")
-        self.setFixedWidth(208)
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        brand = QLabel("🎵 Apple Music")
-        brand.setObjectName("sidebar_brand")
-        outer.addWidget(brand)
-        sub = QLabel("Library Helper")
-        sub.setObjectName("sidebar_brand_sub")
-        outer.addWidget(sub)
-
-        section = QLabel("MENU")
-        section.setObjectName("sidebar_section")
-        outer.addWidget(section)
-
-        self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
-
-        for index, (icon, label) in enumerate([
-            ("📥", "取り込み"),
-            ("🎚️", "音質"),
-            ("⚙️", "設定"),
-            ("📋", "ログ"),
-        ]):
-            btn = QPushButton(f"  {icon}    {label}")
-            btn.setObjectName("nav_btn")
-            btn.setCheckable(True)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            if index == 0:
-                btn.setChecked(True)
-            self._group.addButton(btn, index)
-            outer.addWidget(btn)
-
-        outer.addStretch(1)
-
-        section2 = QLabel("NOW USING")
-        section2.setObjectName("sidebar_section")
-        outer.addWidget(section2)
-        self.preset_value = QLabel(settings.preset_name())
-        self.preset_value.setObjectName("sidebar_preset")
-        outer.addWidget(self.preset_value)
-        preset_lbl = QLabel("音質プリセット")
-        preset_lbl.setObjectName("sidebar_preset_label")
-        outer.addWidget(preset_lbl)
-
-        # Persistent shortcut: open the configured output folder anytime.
-        self.open_folder_btn = QPushButton("📂  出力フォルダを開く")
-        self.open_folder_btn.setObjectName("nav_btn")
-        self.open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        outer.addWidget(self.open_folder_btn)
-
-        self._group.idClicked.connect(self.nav_clicked.emit)
-
-    def select(self, index: int) -> None:
-        btn = self._group.button(index)
-        if btn:
-            btn.setChecked(True)
-
-    def set_current_preset(self, name: str) -> None:
-        self.preset_value.setText(name)
-
-
 # --------------------------------------------------------------------------- #
 # Full-window drop overlay                                                    #
 # --------------------------------------------------------------------------- #
@@ -824,7 +754,7 @@ class MainWindow(QMainWindow):
 
         self._workers: list[ImportWorker] = []
 
-        # ----- Central layout: sidebar | stacked content ----- #
+        # ----- Central layout: sidebar | (header + stacked content) ----- #
         central = QWidget()
         central.setObjectName("central")
         h = QHBoxLayout(central)
@@ -834,6 +764,14 @@ class MainWindow(QMainWindow):
         self.sidebar = Sidebar()
         h.addWidget(self.sidebar)
 
+        right = QWidget()
+        right_l = QVBoxLayout(right)
+        right_l.setContentsMargins(0, 0, 0, 0)
+        right_l.setSpacing(0)
+
+        self.header = HeaderBar()
+        right_l.addWidget(self.header)
+
         self.stack = QStackedWidget()
         self.import_tab = ImportTab()
         self.audio_tab = AudioTab()
@@ -842,31 +780,10 @@ class MainWindow(QMainWindow):
         for w in (self.import_tab, self.audio_tab,
                   self.settings_tab, self.log_tab):
             self.stack.addWidget(w)
-        h.addWidget(self.stack, 1)
+        right_l.addWidget(self.stack, 1)
+        h.addWidget(right, 1)
 
         self.setCentralWidget(central)
-        self.sidebar.nav_clicked.connect(self.stack.setCurrentIndex)
-        self.sidebar.open_folder_btn.clicked.connect(
-            lambda: apple_music_helper.open_folder(
-                settings.output_folder(), log_cb=self.log_tab.append))
-
-        # ----- Status bar ----- #
-        self.status = QStatusBar()
-        self.status.setSizeGripEnabled(False)
-        self.setStatusBar(self.status)
-        self._ffmpeg_lbl = QLabel()
-        self._preset_lbl = QLabel()
-        self._queue_lbl = QLabel()
-        self.status.addWidget(self._ffmpeg_lbl)
-        self.status.addWidget(self._preset_lbl)
-        self.status.addPermanentWidget(self._queue_lbl)
-        self._refresh_status()
-
-        # Refresh status (queue size etc.) on a timer so it stays in sync
-        # without having to plumb signals everywhere.
-        self._status_timer = QTimer(self)
-        self._status_timer.timeout.connect(self._refresh_status)
-        self._status_timer.start(1000)
 
         # ----- Drop overlay (sits over the central widget) ----- #
         self.drop_overlay = DropOverlay(self)
@@ -876,15 +793,35 @@ class MainWindow(QMainWindow):
         self.toasts = ToastManager(self)
 
         # ----- Wire up ----- #
+        self.sidebar.nav_clicked.connect(self.stack.setCurrentIndex)
+        self.sidebar.nav_clicked.connect(self.header.set_page)
+        self.sidebar.new_import_clicked.connect(self._focus_import)
+        self.sidebar.open_output_clicked.connect(
+            lambda: apple_music_helper.open_folder(
+                settings.output_folder(), log_cb=self.log_tab.append))
         self.import_tab.request_import.connect(self._start_import)
         self.audio_tab.preset_changed.connect(self.sidebar.set_current_preset)
+        self.audio_tab.preset_changed.connect(self.header.set_preset)
         self.stack.currentChanged.connect(settings.set_last_tab_index)
+        self.stack.currentChanged.connect(self.header.set_page)
+
+        # Initial header chip values + a 1s refresh tick for queue count.
+        self.header.set_ffmpeg(ffmpeg_helper.is_installed())
+        self.header.set_preset(settings.preset_name())
+        self.header.set_queue(0)
+        self._header_timer = QTimer(self)
+        self._header_timer.timeout.connect(self._refresh_header)
+        self._header_timer.start(1000)
 
         # Restore the tab we left off on (after the stack is set up).
         last = settings.last_tab_index()
         if 0 <= last < self.stack.count():
             self.stack.setCurrentIndex(last)
             self.sidebar.select(last)
+            self.header.set_page(last)
+
+        # Windows 11 Mica + dark title bar (no-op elsewhere).
+        QTimer.singleShot(0, self._apply_native_chrome)
 
         # First-launch ffmpeg check: nudge the user to install it before
         # they hit any errors mid-import.
@@ -925,13 +862,13 @@ class MainWindow(QMainWindow):
         self.drop_overlay.raise_()
 
     def _reposition_overlay(self) -> None:
-        # Cover the content area (everything to the right of the sidebar,
-        # above the status bar), inset slightly.
+        # Cover the content area (right of the sidebar, below the header).
         margin = 16
+        header_h = self.header.height() if hasattr(self, "header") else 0
         x = self.sidebar.width() + margin
-        y = margin
+        y = header_h + margin
         w = self.width() - self.sidebar.width() - margin * 2
-        h = self.height() - self.status.height() - margin * 2
+        h = self.height() - header_h - margin * 2
         self.drop_overlay.setGeometry(x, y, max(0, w), max(0, h))
 
     # ----- ffmpeg helpers ----------------------------------------------- #
@@ -1011,12 +948,21 @@ class MainWindow(QMainWindow):
         if settings.auto_launch_apple_music():
             apple_music_helper.launch_apple_music(log_cb=self.log_tab.append)
 
-    # ----- status bar refresh ------------------------------------------- #
-    def _refresh_status(self) -> None:
-        ff_ok = shutil.which("ffmpeg") is not None
-        self._ffmpeg_lbl.setText(
-            "● ffmpeg" if ff_ok else "○ ffmpeg 未検出")
-        self._preset_lbl.setText(f"🎚 {settings.preset_name()}")
-        n = len(self._workers)
-        self._queue_lbl.setText(
-            f"処理中 {n} 件" if n else "アイドル")
+    # ----- header bar refresh ------------------------------------------- #
+    def _refresh_header(self) -> None:
+        self.header.set_ffmpeg(ffmpeg_helper.is_installed())
+        self.header.set_preset(settings.preset_name())
+        self.header.set_queue(len(self._workers))
+
+    # ----- sidebar primary action --------------------------------------- #
+    def _focus_import(self) -> None:
+        self.stack.setCurrentIndex(0)
+        self.sidebar.select(0)
+        self.header.set_page(0)
+        self.import_tab.url_input.setFocus()
+
+    # ----- Windows 11 chrome -------------------------------------------- #
+    def _apply_native_chrome(self) -> None:
+        hwnd = int(self.winId())
+        win_chrome.enable_dark_titlebar(hwnd)
+        win_chrome.enable_mica(hwnd, acrylic=False)
