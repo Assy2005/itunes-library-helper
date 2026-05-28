@@ -40,6 +40,8 @@ class HeaderBar(QFrame):
 
         self.title = QLabel(PAGE_TITLES[0])
         self.title.setObjectName("header_title")
+        self.title.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.title, 1)
 
         # Right-aligned status chips
